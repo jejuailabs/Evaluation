@@ -7,5 +7,7 @@ declare namespace Cloudflare {
     SUPABASE_PUBLISHABLE_KEY?: string;
     APP_URL?: string;
     PLATFORM_ADMIN_USER_IDS?: string;
+    OPENAI_API_KEY?: string;
+    OPENAI_MODEL?: string;
   }
 }

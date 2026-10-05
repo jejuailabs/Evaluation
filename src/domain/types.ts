@@ -8,6 +8,7 @@ export interface Task extends Scoped { title: string; due: string; ownerId: ID; 
 export interface DocumentVersion { id: ID; name: string; size: number; createdAt: string; blobKey?: string; inlineText?: string }
 export interface Document extends Scoped { title: string; versions: DocumentVersion[] }
 export interface EvidenceRef { documentId: ID; versionId: ID }
+export interface PlanningSource { evidence: EvidenceRef; documentName: string; location: string; quote: string; method: 'manual'|'ai'; reviewedAt: string }
 export interface Expense extends Scoped { title: string; amount: number; date: string; ownerId: ID; status: ExpenseStatus; evidence?: EvidenceRef }
 export interface Indicator extends Scoped {
   name: string; unit: string; target: number | null; forecast: number | null;
@@ -15,6 +16,7 @@ export interface Indicator extends Scoped {
   aggregation: 'cumulative-snapshot'|'period-sum'|'ratio'|'qualitative'; direction: 'higher'|'lower'; version: number;
   standardId?: string; baseline?: number; rubric?: string;
   revisions?: {at:string;target:number|null;forecast:number|null;forecastNote:string;reason:string;version:number}[];
+  planningSource?: PlanningSource;
 }
 export interface Measurement extends Scoped {
   indicatorId: ID; asOf: string; value: number; note: string; evidence: EvidenceRef;
@@ -22,7 +24,7 @@ export interface Measurement extends Scoped {
   periodStart?: string; denominator?: number; assessment?: 'not-yet'|'partial'|'achieved'; supersedesId?: ID; reviewNote?: string;
 }
 export interface BudgetSummary { allocated: number; committed: number; spent: number; paid: number; available: number; unpaid: number }
-export interface MetricSummary { id: ID; name: string; unit: string; target: number | null; forecast: number | null; actual: number | null; rate: number | null; asOf?: string; source: string; sourceUrl?: string; definition: string; definitionVersion: number; evidenceName?: string; evidenceVersionId?: ID; note?: string; evidenceVersionIds?:ID[]; aggregation?:Indicator['aggregation']; assessment?:Measurement['assessment']; records?:number; direction?:Indicator['direction']; rubric?:string; warning?:string }
+export interface MetricSummary { id: ID; name: string; unit: string; target: number | null; forecast: number | null; actual: number | null; rate: number | null; asOf?: string; source: string; sourceUrl?: string; definition: string; definitionVersion: number; evidenceName?: string; evidenceVersionId?: ID; note?: string; evidenceVersionIds?:ID[]; aggregation?:Indicator['aggregation']; assessment?:Measurement['assessment']; records?:number; direction?:Indicator['direction']; rubric?:string; warning?:string; planningSource?:PlanningSource }
 export interface Report extends Scoped {
   title: string; projectName: string; purpose: string; periodStart: string; asOf: string;
   createdAt: string; budget: BudgetSummary; metrics: MetricSummary[];

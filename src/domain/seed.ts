@@ -18,6 +18,7 @@ export function createSeed(): Workspace {
       { id: 't6', orgId, projectId: 'reuse', title: '9월 수선 물품 집계', due: '2026-09-30', ownerId: 'm2', status: 'done' },
     ],
     documents: [
+      { id: 'd-plan', orgId, projectId: 'care', title: '동네 돌봄 사업계획 · 예시', versions: [{ id: 'v-plan', name: '동네_돌봄_사업계획_예시.txt', size: 900, createdAt: at, inlineText: '가상의 사업계획 예시입니다.\n목적: 혼자 지내는 이웃에게 정기적인 방문과 생활 지원을 연결합니다.\n목표: 사업 기간 내 돌봄을 받은 고유 이용자 120명. 명부의 참여자 번호로 중복을 제외합니다.\n활동 목표: 정기 방문과 생활 지원 총 900회. 방문 날짜와 기록 번호로 집계합니다.\n9월 점검 이후 예상: 확인된 이용자 86명에 남은 기간 신규 이용자 42명을 더해 128명. 중복 없이 모집한다는 가정입니다.\n매월 담당자가 명부와 방문 기록을 대조하고, 분기 말에 목표 대비 결과를 확인합니다.\n종료 보고에는 목표·예상·확인 실적, 집행 내역, 현장 변화와 원본 자료를 함께 정리합니다.' }] },
       { id: 'd1', orgId, projectId: 'care', title: '9월 돌봄 활동 집계', versions: [{ id: 'v1', name: '9월_돌봄_활동_집계_예시.txt', size: 170, createdAt: at, inlineText: '가상의 시제품 자료입니다.\n2026-07-01~2026-09-30 누적: 중복을 제거한 이용자 86명, 방문 412회.\n실제 참여자 데이터나 외부 기관이 검증한 실적이 아닙니다.' }] },
       { id: 'd2', orgId, projectId: 'care', title: '사업비 집행 근거', versions: [{ id: 'v2', name: '사업비_집행_예시.txt', size: 130, createdAt: at, inlineText: '가상 집행 예시. 활동가 인건비 1,680만원, 운영비 480만원, 교통비 집행 예정 240만원. 실제 영수증이 아닙니다.' }] },
       { id: 'd3', orgId, projectId: 'reuse', title: '9월 수선 작업 기록', versions: [{ id: 'v3', name: '수선_작업_기록_예시.txt', size: 100, createdAt: at, inlineText: '가상 샘플. 사업 시작 이후 9월 말까지 수선 완료 248개, 작업 운영비 960만원.' }] },

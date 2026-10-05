@@ -14,6 +14,7 @@ import { Annual } from './features/Annual';
 import { Work } from './features/Work';
 import { ActivityFeed } from './features/Activity';
 import { ProjectPlan } from './features/ProjectPlan';
+import { registerWorkspaceTools } from './infrastructure/workspace-tools';
 import { Empty, Icon, Pill } from './ui/shared';
 
 import { loadCloud, sendCommand, uploadCloud, readCloud, ApiError, type CloudWorkspace, type Session } from './infrastructure/api';
@@ -26,17 +27,19 @@ export default function App({cloud}:{cloud?:{initial:CloudWorkspace;session:Sess
   const [mode]=useState<WorkspaceMode>(()=>new URLSearchParams(location.search).get('mode')==='preview'?'personal':'demo');
   const [s,setState]=useState<Workspace|null>(()=>cloud?.initial.workspace??loadWorkspace(mode)); const [path,setPath]=useState(route);
   const [access,setAccess]=useState(cloud?.initial.access);const pendingCommands=useRef(new Map<string,string>());const [saving,setSaving]=useState(false);
+  const stateRef=useRef(s);stateRef.current=s;const savingRef=useRef(false);
+  useEffect(()=>registerWorkspaceTools(()=>stateRef.current),[]);
   const [newProject,setNewProject]=useState(false);const [toast,setToast]=useState('');
   const [theme,setTheme]=useState(()=>localStorage.getItem('value-lens-saas:theme')??'forest');
   useEffect(()=>{const handler=()=>{setPath(route());window.scrollTo(0,0);}; window.addEventListener('hashchange',handler); return()=>window.removeEventListener('hashchange',handler);},[]);
   useEffect(()=>{document.documentElement.dataset.theme=theme;try{localStorage.setItem('value-lens-saas:theme',theme);}catch{/* Theme storage is optional. */}},[theme]);
   useEffect(()=>{if(!toast)return;const timeout=setTimeout(()=>setToast(''),5500);return()=>clearTimeout(timeout);},[toast]);
-  async function refresh(){if(cloud&&s){const result=await loadCloud(s.organization.id);setState(result.workspace);setAccess(result.access);}}
+  async function refresh(){if(cloud&&s){const result=await loadCloud(s.organization.id);stateRef.current=result.workspace;setState(result.workspace);setAccess(result.access);}}
   async function run(command:Command): Promise<boolean> {
-    if(!s)return false;
-    if(saving){setToast('저장 중이에요. 잠시 기다려 주세요.');return false;}setSaving(true);
-    try{if(cloud){const key=JSON.stringify(command);let requestId=pendingCommands.current.get(key);if(!requestId){requestId=crypto.randomUUID();pendingCommands.current.set(key,requestId);}const result=await sendCommand(s.organization.id,command,s.revision,requestId);setState(result.workspace);setAccess(result.access);pendingCommands.current.delete(key);setToast('조직 저장소에 저장했어요.');}else{const next=execute(s,command);saveWorkspace(next,s.revision,mode);setState(next);setToast('저장했어요. 이 브라우저에서 이어서 볼 수 있어요.');}return true;}
-    catch(error){setToast(error instanceof Error?error.message:'저장하지 못했어요. 입력은 유지돼요.');if(error instanceof ApiError&&[401,403].includes(error.status)){location.reload();}else if(error instanceof ApiError&&error.status===409){pendingCommands.current.clear();try{await refresh();}catch{/* Keep the form for retry. */}}return false;}finally{setSaving(false);}
+    const current=stateRef.current;if(!current)return false;
+    if(savingRef.current){setToast('저장 중이에요. 잠시 기다려 주세요.');return false;}savingRef.current=true;setSaving(true);
+    try{if(cloud){const key=JSON.stringify(command);let requestId=pendingCommands.current.get(key);if(!requestId){requestId=crypto.randomUUID();pendingCommands.current.set(key,requestId);}const result=await sendCommand(current.organization.id,command,current.revision,requestId);stateRef.current=result.workspace;setState(result.workspace);setAccess(result.access);pendingCommands.current.delete(key);setToast('조직 저장소에 저장했어요.');}else{const next=execute(current,command);saveWorkspace(next,current.revision,mode);stateRef.current=next;setState(next);setToast('저장했어요. 이 브라우저에서 이어서 볼 수 있어요.');}return true;}
+    catch(error){setToast(error instanceof Error?error.message:'저장하지 못했어요. 입력은 유지돼요.');if(error instanceof ApiError&&[401,403].includes(error.status)){location.reload();}else if(error instanceof ApiError&&error.status===409){pendingCommands.current.clear();try{await refresh();}catch{/* Keep the form for retry. */}}return false;}finally{savingRef.current=false;setSaving(false);}
   }
   const page=path[0]??'home';
   if(!s||(mode==='personal'&&page==='start'))return <Start workspace={s} create={(organization,member)=>{const next=createEmptyWorkspace(organization,member);initializePersonalWorkspace(next);setState(next);location.hash='/home';}}/>;

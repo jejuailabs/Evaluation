@@ -59,7 +59,7 @@ export function metricSummary(s: Workspace, i: Indicator, asOf = today(), period
     rate: attainment(actual,i.target,i.direction), asOf: m?.asOf,
     source: i.source, sourceUrl: i.sourceUrl, definition: i.definition, definitionVersion: i.version,
     evidenceName: evidence?.version.name, evidenceVersionId: evidence?.version.id, note: m?.note,
-    evidenceVersionIds:rows.map(m=>m.evidence.versionId),aggregation:i.aggregation,assessment:m?.assessment,records:rows.length,direction:i.direction,rubric:i.rubric,warning:warnings.join(' ') };
+    evidenceVersionIds:rows.map(m=>m.evidence.versionId),aggregation:i.aggregation,assessment:m?.assessment,records:rows.length,direction:i.direction,rubric:i.rubric,planningSource:i.planningSource,warning:warnings.join(' ') };
 }
 export const ownerName = (s: Workspace, id: string) => s.members.find(m => m.id === id)?.name ?? '미배정';
 export const taskLabels = { todo: '예정', doing: '진행 중', done: '완료' } as const;

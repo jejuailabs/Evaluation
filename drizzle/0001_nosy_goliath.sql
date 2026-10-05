@@ -1,0 +1,1 @@
+CREATE INDEX `operations_org_action_created` ON `operations` (`org_id`,`action`,`created_at`);

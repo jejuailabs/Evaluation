@@ -4,9 +4,10 @@ import type { Command, Workspace, DocumentVersion } from '../src/domain/types';
 import { createEmptyWorkspace } from '../src/domain/workspace';
 import { authorizeCommand, commandProject, HttpError, isManager, projectAccess, requireManager, visibleWorkspace, type Actor, type Role } from './policy';
 import { envelopeSchema } from './commands-schema';
+import { aiReady, planningRequestSchema, suggestPlan, type AIEnv } from './planning-ai';
 
 export type Identity={userId:string;email:string;displayName:string};
-export type Services={DB:D1Database;BUCKET?:R2Bucket;PLATFORM_ADMIN_USER_IDS?:string};
+export type Services={DB:D1Database;BUCKET?:R2Bucket;PLATFORM_ADMIN_USER_IDS?:string} & AIEnv;
 type Org={id:string;name:string;status:string;revision:number;body:string;member_id:string;role:Role};
 const timestamp=()=>new Date().toISOString();
 const uuid=()=>crypto.randomUUID();
@@ -88,6 +89,26 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
  if(parts[0]!=='organizations'||!parts[1])throw new HttpError(404,'주소를 찾지 못했어요.');
  const orgId=parts[1],ctx=await org(orgId),{state,actor,row}=ctx;
  if(parts[2]==='workspace'&&method==='GET')return json(await result(orgId));
+ if(parts[2]==='planning-ai'){
+  requireManager(actor);
+  if(method==='GET')return json({ready:aiReady(env),limit:20});
+  if(method==='POST'){
+   const input=planningRequestSchema.parse(await body(req));
+   const doc=state.documents.find(d=>d.id===input.documentId&&d.orgId===orgId);
+   if(!doc||!doc.versions.some(v=>v.id===input.versionId))throw new HttpError(404,'이 조직의 자료와 버전을 선택해 주세요.');
+   projectAccess(actor,doc.projectId);
+   const project=state.projects.find(p=>p.id===doc.projectId)!;
+   if(['completed','archived'].includes(project.status??''))throw new HttpError(400,'진행 중인 프로젝트에서 지표를 설계해 주세요.');
+   if(!aiReady(env))throw new HttpError(503,'AI 서비스 연결 전이에요. 원문을 읽고 직접 지표를 설계할 수 있어요.');
+   // Reserve before the paid call. One atomic insert prevents concurrent requests bypassing the quota.
+   const since=new Date(Date.now()-86400000).toISOString();
+   const reservation=await db.prepare("INSERT INTO operations (id,org_id,actor_id,action,request_hash,created_at) SELECT ?,?,?,'planning.ai',?,? WHERE (SELECT COUNT(*) FROM operations WHERE org_id=? AND action='planning.ai' AND created_at>=?)<20 AND EXISTS(SELECT 1 FROM organizations WHERE id=? AND revision=? AND status='active')").bind(uuid(),orgId,user.userId,await hash(input.documentId+':'+input.versionId),timestamp(),orgId,since,orgId,row.revision).run();
+   if(!reservation.meta.changes)throw new HttpError(429,'24시간 분석 한도(조직당 20회)에 도달했거나 조직 상태가 바뀌었어요. 잠시 후 다시 확인해 주세요.');
+   const draft=await suggestPlan(env,input,project);
+   const fresh=await org(orgId);requireManager(fresh.actor);
+   return json(draft);
+  }
+ }
  if(parts[2]==='commands'&&method==='POST'){
   const input=envelopeSchema.parse(await body(req));const command=input.command as Command;authorizeCommand(actor,command,state);
   const requestHash=await hash(JSON.stringify(input.command));
@@ -120,7 +141,7 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
  if(parts[2]==='files'){
   if(method==='POST'){
    const pid=url.searchParams.get('project')??'';projectAccess(actor,pid);if(actor.role==='viewer')throw new HttpError(403,'읽기 전용 권한이에요.');
-   if(!state.projects.some(p=>p.id===pid))throw new HttpError(404,'프로젝트가 없어요.');
+   const targetProject=state.projects.find(p=>p.id===pid);if(!targetProject)throw new HttpError(404,'프로젝트가 없어요.');if(['completed','archived'].includes(targetProject.status??''))throw new HttpError(400,'완료·보관한 프로젝트는 다시 연 뒤 자료를 올려 주세요.');
    if(!env.BUCKET)throw new HttpError(503,'파일 저장소를 준비 중이에요.');
    const declared=Number(req.headers.get('Content-Length'));if(!Number.isFinite(declared)||declared<1||declared>25*1024*1024)throw new HttpError(413,'파일은 25MB 이내로 올려 주세요.');
    const bytes=await req.arrayBuffer();if(bytes.byteLength!==declared)throw new HttpError(400,'파일 크기가 일치하지 않아요.');

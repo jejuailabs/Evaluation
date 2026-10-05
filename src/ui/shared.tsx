@@ -23,10 +23,10 @@ export function Heading({ eyebrow, title, description, action }: { eyebrow?: str
 export function Empty({ children }: { children: ReactNode }) { return <div className="empty">{children}</div>; }
 export function Pill({ children, tone = '' }: { children: ReactNode; tone?: string }) { return <span className={`pill ${tone}`}>{children}</span>; }
 export function Progress({ value, label }: { value: number | null; label?: string }) { return <div className="progress" role="meter" aria-label={label ?? '달성률'} aria-valuenow={value === null ? undefined : Math.min(value,100)} aria-valuemin={0} aria-valuemax={100} aria-valuetext={value === null ? '미설정' : `${value.toFixed(1)}%`}><span style={{ width: `${Math.max(0, Math.min(100, value ?? 0))}%` }}/></div>; }
-export function Modal({ title, close, children }: { title: string; close: () => void; children: ReactNode }) {
+export function Modal({ title, close, children, wide=false }: { title: string; close: () => void; children: ReactNode; wide?:boolean }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => { const d = ref.current; d?.showModal(); return () => d?.close(); }, []);
-  return <dialog ref={ref} onCancel={close} onClick={e => { if (e.target === ref.current) close(); }}><div className="dialog-head"><h2>{title}</h2><button className="icon-button" onClick={close} aria-label="닫기"><Icon name="close"/></button></div>{children}</dialog>;
+  return <dialog className={wide?'wide-dialog':undefined} ref={ref} onCancel={close} onClick={e => { if (e.target === ref.current) close(); }}><div className="dialog-head"><h2>{title}</h2><button className="icon-button" onClick={close} aria-label="닫기"><Icon name="close"/></button></div>{children}</dialog>;
 }
 export function Form({ submit, children, label = '저장' }: { submit: (data: FormData) => void | Promise<void>; children?: ReactNode; label?: string }) {
   const [busy, setBusy] = useState(false);

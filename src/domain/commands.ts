@@ -94,6 +94,13 @@ export function execute(original: Workspace, input: Command, now = new Date().to
       if(i.aggregation==='qualitative'){requireText(i.rubric??'','변화를 판단할 기준');if(i.target!==null||i.forecast!==null)throw new Error('정성 지표에는 수치 목표를 넣지 않아요.');}
       if(i.standardId){const standard=standards.find(x=>x.id===i.standardId);if(!standard)throw new Error('지원하는 참고 기준을 선택해 주세요.');i.source=`${standard.system} ${standard.code} 참고`;i.sourceUrl=standard.url;}
       else {i.source='우리 조직 지표';delete i.sourceUrl;}
+      if(i.planningSource){
+        const ref=resolveEvidence(s,i.projectId,i.planningSource.evidence);
+        requireText(i.planningSource.quote,'설계에 사용한 원문');requireText(i.planningSource.location,'원문 위치');
+        if(i.planningSource.quote.length>1500)throw new Error('인용은 1,500자 이내로 남겨 주세요.');
+        i.planningSource.documentName=ref.version.name;i.planningSource.reviewedAt=now;
+        if(s.indicators.some(x=>x.projectId===i.projectId&&x.name===i.name&&x.planningSource?.evidence.versionId===i.planningSource!.evidence.versionId&&x.planningSource.quote===i.planningSource!.quote))throw new Error('같은 원문으로 이미 만든 지표예요. 기존 지표를 확인해 주세요.');
+      }
       s.indicators.push(i); projectId = i.projectId; action = `지표 추가 · ${i.name}`; break;
     }
     case 'measurement.add': {
@@ -130,7 +137,7 @@ export function execute(original: Workspace, input: Command, now = new Date().to
       const tasks = projectRows(s, s.tasks, p.id).filter(t => t.due <= command.asOf&&t.due>=start);
       const measurements = projectRows(s, s.measurements, p.id).filter(m => m.asOf <= command.asOf&&m.asOf>=start);
       const metrics = projectRows(s, s.indicators, p.id).map(i => metricSummary(s, i, command.asOf,start));
-      const refKeys = new Set(metrics.flatMap(m => m.evidenceVersionIds??(m.evidenceVersionId ? [m.evidenceVersionId] : [])));
+      const refKeys = new Set(metrics.flatMap(m => [...(m.evidenceVersionIds??(m.evidenceVersionId ? [m.evidenceVersionId] : [])),...(m.planningSource?[m.planningSource.evidence.versionId]:[])]));
       projectRows(s, s.expenses, p.id).filter(e => e.date <= command.asOf&&e.date>=start).forEach(e => { if (e.evidence) refKeys.add(e.evidence.versionId); });
       const activities=(s.activities??[]).filter(a=>a.projectId===p.id&&a.date>=start&&a.date<=command.asOf);
       activities.forEach(a=>{a.evidence.forEach(e=>refKeys.add(e.versionId));const d=s.documents.find(d=>d.id===a.documentId);d?.versions.forEach(v=>refKeys.add(v.id));});

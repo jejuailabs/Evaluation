@@ -1,7 +1,7 @@
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { handleApi, type Identity, type Services } from '../server/api';
 import type { Command } from '../src/domain/types';
 
@@ -14,7 +14,7 @@ class Statement {
  async all(){return{results:sqlite.prepare(this.sql).all(...this.values),success:true};}
  async run(){const r=sqlite.prepare(this.sql).run(...this.values);return{success:true,meta:{changes:r.changes},results:[]};}
 }
-beforeEach(()=>{sqlite?.close();sqlite=new DatabaseSync(':memory:');sqlite.exec('PRAGMA foreign_keys=ON');sqlite.exec(readFileSync(new URL('../drizzle/0000_fair_flatman.sql',import.meta.url),'utf8'));
+beforeEach(()=>{sqlite?.close();sqlite=new DatabaseSync(':memory:');sqlite.exec('PRAGMA foreign_keys=ON');for(const file of readdirSync(new URL('../drizzle/',import.meta.url)).filter(f=>f.endsWith('.sql')).sort())sqlite.exec(readFileSync(new URL('../drizzle/'+file,import.meta.url),'utf8'));sqlite.exec('PRAGMA optimize');
  const files=new Map<string,ArrayBuffer>();
  env={DB:{prepare:(sql:string)=>new Statement(sql),batch:async(statements:Statement[])=>{sqlite.exec('BEGIN');try{const results=[];for(const s of statements)results.push(await s.run());sqlite.exec('COMMIT');return results;}catch(e){sqlite.exec('ROLLBACK');throw e;}}} as unknown as D1Database,BUCKET:{put:async(key:string,value:ArrayBuffer)=>{files.set(key,value);},get:async(key:string)=>files.has(key)?{body:files.get(key)}:null,delete:async(key:string)=>{files.delete(key);}} as any};
 });
@@ -25,6 +25,25 @@ async function cmd(orgId:string,command:Command,user=owner,revision?:number,id=c
 async function project(orgId:string){const w=await load(orgId);const id=crypto.randomUUID();const p={id,orgId,name:'돌봄 사업',purpose:'함께 기록해요',start:'2026-01-01',end:'2027-12-31',ownerId:w.workspace.members[0].id,budget:1000000,category:'돌봄'};assert.equal((await cmd(orgId,{type:'project.add',project:p})).status,200);return id;}
 async function invite(orgId:string,role='member'){const r=await call(`organizations/${orgId}/admin/invitations`,owner,{email:member.email,role});assert.equal(r.status,200);return r.url.split('/invite/')[1];}
 async function join(orgId:string,role='member'){const token=await invite(orgId,role);const accepted=await call('invitations/accept',member,{token});assert.equal(accepted.status,200);const w=await load(orgId,member);return w.access.memberId as string;}
+
+test('문서 AI 설계는 관리자·조직·원본 버전·설정·호출 한도를 검사하며 자동 실적을 만들지 않음',async()=>{
+ const orgId=await create(),pid=await project(orgId);await join(orgId);
+ await cmd(orgId,{type:'activity.add',activity:{id:crypto.randomUUID(),orgId,projectId:pid,title:'계획 메모',body:'올해 목표는 100명',date:'2026-09-30',ownerId:(await load(orgId)).access.memberId,indicatorIds:[],evidence:[]}});
+ const before=(await load(orgId)).workspace,d=before.documents[0],input={documentId:d.id,versionId:d.versions[0].id,blocks:[{id:'1',location:'1행',text:'올해 목표는 100명'}]};
+ const path=`organizations/${orgId}/planning-ai`;
+ assert.equal((await call(path,member,input)).status,403);assert.equal((await call(path,outsider,input)).status,403);
+ assert.equal((await call(path,owner,{...input,versionId:'not-here'})).status,404);assert.equal((await call(path,owner,input)).status,503);
+ assert.equal((await call(path)).ready,false);
+ env.OPENAI_API_KEY='test-key';env.OPENAI_MODEL='configured-test-model';assert.equal((await call(path)).ready,true);
+ const fetchBefore=globalThis.fetch;let calls=0;
+ globalThis.fetch=(async()=>{calls++;return Response.json({status:'completed',output:[{type:'message',content:[{type:'output_text',text:JSON.stringify({summary:'확인할 내용',candidates:[]})}]}]});}) as typeof fetch;
+ try {
+  assert.equal((await call(path,owner,input)).status,200);
+  for(let n=0;n<19;n++)sqlite.prepare('INSERT INTO operations (id,org_id,actor_id,action,request_hash,created_at) VALUES (?,?,?,?,?,?)').run(crypto.randomUUID(),orgId,owner.userId,'planning.ai','test',new Date().toISOString());
+  assert.equal((await call(path,owner,input)).status,429);assert.equal(calls,1);
+  assert.deepEqual((await load(orgId)).workspace,before);
+ } finally {globalThis.fetch=fetchBefore;}
+});
 
 test('서버에서 연간 계획→현장 기록→지표 확인→연간 보고를 저장하고 역할별로 분리',async()=>{
  const orgId=await create(),pid=await project(orgId),mid=await join(orgId);

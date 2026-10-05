@@ -57,6 +57,6 @@ export async function readFile(version: DocumentVersion): Promise<Blob> {
 }
 export function download(blob: Blob, name: string) {
   const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a'); anchor.href = url; anchor.download = name; anchor.click();
+  const anchor = document.createElement('a'); anchor.href = url; anchor.download = name; anchor.style.display='none'; document.querySelector('body')!.appendChild(anchor); anchor.click(); anchor.remove();
   setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
