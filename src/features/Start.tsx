@@ -17,6 +17,6 @@ export function Start({ workspace, create }: { workspace: Workspace | null; crea
   </div>;
 }
 
-export function FirstProject({ create, title = '첫 프로젝트를 만들어 볼까요?' }: { create: () => void; title?: string }) {
-  return <section className="first-project"><div className="first-project-copy"><p className="eyebrow">아직 프로젝트가 없어요</p><h2>{title}</h2><p>완성된 사업계획서가 없어도 괜찮아요.<br/>프로젝트 이름과 기간부터 정하고, 하나씩 채워 가세요.</p><button className="button primary" onClick={create}><Icon name="plus"/>첫 프로젝트 만들기</button></div><div className="first-project-flow"><div><span>01</span><strong>계획</strong><p>목적 · 기간 · 예산</p></div><div><span>02</span><strong>진행</strong><p>업무 · 일정 · 현장 자료</p></div><div><span>03</span><strong>결과</strong><p>목표와 실적 · 보고서</p></div></div></section>;
+export function FirstProject({ create, canCreate = true, title = '첫 프로젝트를 만들어 볼까요?' }: { create: () => void; canCreate?: boolean; title?: string }) {
+  return <section className="first-project"><div className="first-project-copy"><p className="eyebrow">아직 프로젝트가 없어요</p><h2>{canCreate?title:'참여할 프로젝트를 기다리고 있어요.'}</h2><p>{canCreate?'완성된 사업계획서가 없어도 괜찮아요. 프로젝트 이름과 기간부터 정하고, 하나씩 채워 가세요.':'관리자가 프로젝트에 배정하면 이곳에 표시돼요. 조직 관리자에게 참여 요청을 해주세요.'}</p>{canCreate&&<button className="button primary" onClick={create}><Icon name="plus"/>첫 프로젝트 만들기</button>}</div><div className="first-project-flow"><div><span>01</span><strong>계획</strong><p>목적 · 기간 · 예산</p></div><div><span>02</span><strong>진행</strong><p>업무 · 일정 · 현장 자료</p></div><div><span>03</span><strong>결과</strong><p>목표와 실적 · 보고서</p></div></div></section>;
 }

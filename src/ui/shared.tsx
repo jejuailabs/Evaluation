@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode, type FormEvent } from 'react';
-import type { Workspace, Command, EvidenceRef } from '../domain/types';
+import type { Workspace, Command, EvidenceRef, DocumentVersion } from '../domain/types';
 
-export type Context = { s: Workspace; run: (command: Command) => boolean; notify: (text: string) => void };
+export type Context = { s: Workspace; run: (command: Command) => Promise<boolean>; notify: (text: string) => void; canWrite?:boolean; canManage?:boolean; cloud?:boolean; upload?:(projectId:string,file:File)=>Promise<DocumentVersion>; read?:(version:DocumentVersion)=>Promise<Blob> };
 export function Icon({ name, size = 20 }: { name: string; size?: number }) {
   const paths: Record<string, ReactNode> = {
     home: <><path d="m3 10 9-7 9 7v10H3Z"/><path d="M9 20v-7h6v7"/></>,
@@ -28,7 +28,7 @@ export function Modal({ title, close, children }: { title: string; close: () => 
   useEffect(() => { const d = ref.current; d?.showModal(); return () => d?.close(); }, []);
   return <dialog ref={ref} onCancel={close} onClick={e => { if (e.target === ref.current) close(); }}><div className="dialog-head"><h2>{title}</h2><button className="icon-button" onClick={close} aria-label="닫기"><Icon name="close"/></button></div>{children}</dialog>;
 }
-export function Form({ submit, children, label = '저장' }: { submit: (data: FormData) => void | Promise<void>; children: ReactNode; label?: string }) {
+export function Form({ submit, children, label = '저장' }: { submit: (data: FormData) => void | Promise<void>; children?: ReactNode; label?: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   async function onSubmit(e: FormEvent<HTMLFormElement>) {

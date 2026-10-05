@@ -5,3 +5,9 @@ dist/
 !.env.example
 *.log
 qa/screenshots/
+
+.sites-runtime/
+.wrangler/
+.vinext/
+.dev.vars
+.next/
