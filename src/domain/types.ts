@@ -22,7 +22,7 @@ export interface Measurement extends Scoped {
   periodStart?: string; denominator?: number; assessment?: 'not-yet'|'partial'|'achieved'; supersedesId?: ID; reviewNote?: string;
 }
 export interface BudgetSummary { allocated: number; committed: number; spent: number; paid: number; available: number; unpaid: number }
-export interface MetricSummary { id: ID; name: string; unit: string; target: number | null; forecast: number | null; actual: number | null; rate: number | null; asOf?: string; source: string; sourceUrl?: string; definition: string; definitionVersion: number; evidenceName?: string; evidenceVersionId?: ID; note?: string; evidenceVersionIds?:ID[]; aggregation?:Indicator['aggregation']; assessment?:Measurement['assessment']; records?:number; direction?:Indicator['direction']; warning?:string }
+export interface MetricSummary { id: ID; name: string; unit: string; target: number | null; forecast: number | null; actual: number | null; rate: number | null; asOf?: string; source: string; sourceUrl?: string; definition: string; definitionVersion: number; evidenceName?: string; evidenceVersionId?: ID; note?: string; evidenceVersionIds?:ID[]; aggregation?:Indicator['aggregation']; assessment?:Measurement['assessment']; records?:number; direction?:Indicator['direction']; rubric?:string; warning?:string }
 export interface Report extends Scoped {
   title: string; projectName: string; purpose: string; periodStart: string; asOf: string;
   createdAt: string; budget: BudgetSummary; metrics: MetricSummary[];

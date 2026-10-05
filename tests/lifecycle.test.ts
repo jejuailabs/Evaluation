@@ -28,7 +28,7 @@ test('비율은 백분율 평균이 아닌 분자·분모 합계로 계산',()=>
 test('정성 평가는 억지 수치·달성률 없이 단계와 관찰 근거를 보존',()=>{
  let s=withMetric('qualitative');s=confirm(record(s,'q','2026-07-01','2026-09-30',0,{assessment:'partial',note:'인터뷰에서 일부 변화 확인'}),'q');
  const m=metricSummary(s,s.indicators.at(-1)!);assert.equal(m.actual,null);assert.equal(m.rate,null);assert.equal(m.assessment,'partial');assert.match(m.note!,/인터뷰/);
- s=execute(s,{type:'report.create',projectId:'care',asOf:'2026-09-30',note:''});assert.match(reportHTML(s.reports[0]),/일부 변화/);
+ s=execute(s,{type:'report.create',projectId:'care',asOf:'2026-09-30',note:''});assert.match(reportHTML(s.reports[0]),/일부 변화/);assert.match(reportHTML(s.reports[0]),/당사자가 두 차례 직접 참여/);
 });
 test('정정은 검토 전 원래 값을 유지하고 확인 후 대체하며 두 번째 동시 정정은 거부',()=>{
  let s=withMetric('period-sum');s=confirm(record(s,'a','2026-07-01','2026-07-31',20),'a');s=record(s,'fix','2026-07-01','2026-07-31',22,{supersedesId:'a'});s=record(s,'race','2026-07-01','2026-07-31',23,{supersedesId:'a'});
