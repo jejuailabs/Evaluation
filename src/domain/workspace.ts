@@ -12,6 +12,6 @@ export function createEmptyWorkspace(organizationName: string, memberName: strin
     organization: { id: crypto.randomUUID(), name },
     members: [{ id: crypto.randomUUID(), name: member, role: '담당자' }],
     projects: [], tasks: [], documents: [], expenses: [], indicators: [],
-    measurements: [], reports: [], events: [],
+    measurements: [], reports: [], events: [], annualPlans: [], annualGoals: [], annualReports: [], activities: [],
   };
 }

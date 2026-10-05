@@ -26,6 +26,24 @@ async function project(orgId:string){const w=await load(orgId);const id=crypto.r
 async function invite(orgId:string,role='member'){const r=await call(`organizations/${orgId}/admin/invitations`,owner,{email:member.email,role});assert.equal(r.status,200);return r.url.split('/invite/')[1];}
 async function join(orgId:string,role='member'){const token=await invite(orgId,role);const accepted=await call('invitations/accept',member,{token});assert.equal(accepted.status,200);const w=await load(orgId,member);return w.access.memberId as string;}
 
+test('서버에서 연간 계획→현장 기록→지표 확인→연간 보고를 저장하고 역할별로 분리',async()=>{
+ const orgId=await create(),pid=await project(orgId),mid=await join(orgId);
+ await call(`organizations/${orgId}/admin/assignments`,owner,{projectId:pid,memberId:mid,assigned:true});
+ const planId=crypto.randomUUID(),indicatorId=crypto.randomUUID();
+ const plan:Command={type:'annual.plan.save',plan:{id:planId,orgId,year:2026,title:'올해 계획',purpose:'이웃의 참여',budget:1000000},reason:''};
+ assert.equal((await cmd(orgId,plan,member)).status,403);assert.equal((await cmd(orgId,plan)).status,200);
+ assert.equal((await cmd(orgId,{type:'indicator.add',indicator:{id:indicatorId,orgId,projectId:pid,name:'이용자',unit:'명',target:100,forecast:120,forecastNote:'10명 × 12회, 중복 없음 가정',definition:'중복 제거 이용자',source:'우리 조직 지표',standardId:'iris-pi4060',aggregation:'cumulative-snapshot',direction:'higher',version:1}})).status,200);
+ assert.equal((await cmd(orgId,{type:'annual.goal.save',goal:{id:crypto.randomUUID(),orgId,planId,name:'100명 연결',unit:'명',target:100,definition:'중복 제거',direction:'higher',aggregation:'sum',linkIds:[indicatorId],deduplication:'한 사업의 고유 개인 기준'},reason:''})).status,200);
+ assert.equal((await cmd(orgId,{type:'activity.add',activity:{id:crypto.randomUUID(),orgId,projectId:pid,title:'방문 기록',body:'명부에서 15명 확인',date:'2026-09-30',ownerId:'spoofed-author',indicatorIds:[indicatorId],evidence:[]}},member)).status,200);
+ const w=await load(orgId),a=w.workspace.activities[0],d=w.workspace.documents.find((d:any)=>d.id===a.documentId);assert.equal(a.ownerId,mid);
+ const measurementId=crypto.randomUUID();assert.equal((await cmd(orgId,{type:'measurement.add',measurement:{id:measurementId,orgId,projectId:pid,indicatorId,asOf:'2026-09-30',value:15,note:'명부 대조',evidence:{documentId:d.id,versionId:d.versions[0].id},status:'pending',createdAt:''}},member)).status,200);
+ assert.equal((await cmd(orgId,{type:'measurement.confirm',projectId:pid,measurementId},member)).status,403);
+ assert.equal((await cmd(orgId,{type:'measurement.confirm',projectId:pid,measurementId})).status,200);
+ assert.equal((await cmd(orgId,{type:'annual.report.create',planId,start:'2026-01-01',end:'2026-09-30',note:'다음 분기 방문 확대'})).status,200);
+ const final=await load(orgId);assert.equal(final.workspace.annualReports[0].goals[0].actual,15);assert.equal(final.workspace.indicators[0].source,'IRIS+ PI4060 참고');
+ const restricted=await load(orgId,member);assert.deepEqual(restricted.workspace.annualReports,[]);assert.deepEqual(restricted.workspace.annualPlans,[]);assert.equal(restricted.workspace.activities.length,1);
+});
+
 test('인증·CSRF·조직 경계: 익명 쓰기, 다른 조직 직접 접근, 외부 Origin을 거부',async()=>{
  assert.equal((await call('session',null)).user,null);
  assert.equal((await call('organizations',null,{name:'불가'})).status,401);

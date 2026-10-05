@@ -95,8 +95,9 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
   if(previous){if(previous.org_id!==orgId||previous.actor_id!==user.userId||previous.request_hash!==requestHash)throw new HttpError(409,'같은 요청 번호로 다른 변경을 보낼 수 없어요.');return json(await result(orgId));}
   if(input.revision!==row.revision)throw new HttpError(409,'다른 사람이 변경했어요. 새로고침하고 다시 저장해 주세요.');
   const pid=commandProject(command);
-  if(command.type==='project.add'||command.type==='task.add'||command.type==='expense.add'){
-   const ownerId=command.type==='project.add'?command.project.ownerId:command.type==='task.add'?command.task.ownerId:command.expense.ownerId;
+  if(command.type==='activity.add')command.activity.ownerId=actor.memberId;
+  if(command.type==='project.add'||command.type==='project.update'||command.type==='task.add'||command.type==='task.update'||command.type==='expense.add'||command.type==='activity.add'){
+   const ownerId='project' in command?command.project.ownerId:'task' in command?command.task.ownerId:'activity' in command?command.activity.ownerId:command.expense.ownerId;
    const member=await db.prepare('SELECT role FROM memberships WHERE id=? AND org_id=? AND active=1').bind(ownerId,orgId).first<{role:Role}>();
    if(!member)throw new HttpError(400,'활성 구성원을 담당자로 선택해 주세요.');
    if(command.type!=='project.add'&&!isManager(member.role)&&!(await db.prepare('SELECT 1 FROM project_members WHERE org_id=? AND project_id=? AND member_id=?').bind(orgId,pid,ownerId).first()))throw new HttpError(400,'이 프로젝트에 참여한 담당자를 선택해 주세요.');

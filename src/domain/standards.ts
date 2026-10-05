@@ -1,0 +1,11 @@
+export const standards = [
+ {id:'iris-pi4060',system:'IRIS+',code:'PI4060',name:'이용자 수',official:'Client Individuals: Total',unit:'명',definition:'보고기간에 제품·서비스를 받은 개인을 중복 없이 셉니다. 방문·거래 횟수나 가구원 수와 구분합니다.',caution:'도달 규모이며 삶의 변화 자체를 입증하지 않아요.',url:'https://iris.thegiin.org/metric/5.3/pi4060/',version:'5.3'},
+ {id:'iris-oi8869',system:'IRIS+',code:'OI8869',name:'기간 말 상시 고용 인원',official:'Permanent Employees: Total',unit:'명',definition:'기간 종료일 현재 유급 전일제·시간제 상시 직원의 개인 수입니다. 임시직은 제외합니다.',caution:'신규로 창출한 일자리 수와 달라요.',url:'https://iris.thegiin.org/metric/5.3/oi8869/',version:'5.3'},
+ {id:'iris-pi2822',system:'IRIS+',code:'PI2822',name:'새롭게 접근 기회를 얻은 이용자',official:'Client Individuals: Provided New Access',unit:'명',definition:'보고기간 이전에는 이용할 수 없었던 제품·서비스에 새롭게 접근한 개인을 중복 없이 셉니다.',caution:'단순 신규 가입자와 달라요. 이전 접근 여부의 근거가 필요해요.',url:'https://iris.thegiin.org/metric/5.3c/PI2822/',version:'5.3c'},
+ {id:'sdg-4.4',system:'SDGs',code:'4.4',name:'취업·창업에 필요한 역량',official:'SDG 4 — Target 4.4',unit:'명',definition:'취업·양질의 일자리·창업에 필요한 기술 및 직업 역량 향상을 살핍니다. 조직에서 측정할 역량과 도구를 정해 주세요.',caution:'4.4는 목표의 세부 타깃이에요. 교육 참여와 역량 향상을 구분하세요.',url:'https://sdgs.un.org/goals/goal4',version:'2030 Agenda'},
+ {id:'sdg-8.5',system:'SDGs',code:'8.5',name:'포용적 고용과 양질의 일자리',official:'SDG 8 — Target 8.5',unit:'명',definition:'청년·장애인을 포함한 포용적 고용, 양질의 일자리와 동일가치노동 동일임금을 살핍니다.',caution:'고용 인원만으로 일자리의 질까지 판단하지 않아요.',url:'https://sdgs.un.org/goals/goal8',version:'2030 Agenda'},
+ {id:'sdg-10.2',system:'SDGs',code:'10.2',name:'사회·경제·정치적 포용',official:'SDG 10 — Target 10.2',unit:'명',definition:'배경과 조건에 관계없이 참여자의 역량과 포용을 높이는 변화를 살핍니다.',caution:'대상 특성과 실제 접근·참여 변화의 근거를 함께 기록하세요.',url:'https://sdgs.un.org/goals/goal10',version:'2030 Agenda'},
+ {id:'svi-management',system:'SVI',code:'사회적 성과 관리체계',name:'사회적 성과 관리체계 구축',official:'사회적가치지표 · 사회적 성과 관리체계 구축여부',unit:'단계',definition:'사회적 목표를 정하고 성과를 측정·관리하며 개선에 활용하는 조직의 체계를 기록합니다.',caution:'프로젝트 자료는 평가 준비에 활용해요. 공식 SVI 점수·등급을 자동 산출하지 않아요.',url:'https://www.socialenterprise.or.kr/homepage/contents/contents.do?ciIdx=10073&menuId=855',version:'공식 안내 참고'}
+] as const;
+export const aggregationLabels = {'cumulative-snapshot':'누적·현재 상태','period-sum':'기간별 합계','ratio':'기간별 비율','qualitative':'정성 변화'} as const;
+export const assessmentLabels = {'not-yet':'아직 변화 없음',partial:'일부 변화',achieved:'기준 충족'} as const;

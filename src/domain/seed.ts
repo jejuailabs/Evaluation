@@ -40,6 +40,8 @@ export function createSeed(): Workspace {
       { id: 'r3', orgId, projectId: 'reuse', indicatorId: 'i3', asOf: '2026-09-30', value: 248, note: '작업 기록의 수선 완료 물품.', evidence: { documentId: 'd3', versionId: 'v3' }, status: 'confirmed', createdAt: at, confirmedAt: at },
       { id: 'r4', orgId, projectId: 'care', indicatorId: 'i1', asOf: '2026-10-05', value: 91, note: '10월 5일까지 추가 기록. 예시 자료와 대조 후 확인해 주세요.', evidence: { documentId: 'd1', versionId: 'v1' }, status: 'pending', createdAt: '2026-10-05T01:00:00.000Z' },
     ],
+    annualPlans:[{id:'year-2026',orgId,year:2026,title:'함께 돌보고, 다시 쓰는 2026',purpose:'돌봄이 필요한 이웃에게 손을 내밀고, 지역의 자원이 다시 쓰이도록 합니다. 두 사업의 실행과 변화를 함께 살펴봅니다.',budget:90000000,status:'active',version:1,changes:[]}],
+    annualGoals:[{id:'goal-care',orgId,planId:'year-2026',name:'120명의 이웃에게 돌봄을 연결해요',unit:'명',target:120,definition:'동네 돌봄 연결 사업의 중복 제거 이용자 수를 기준으로 확인합니다.',direction:'higher',aggregation:'sum',linkIds:['i1'],deduplication:'하나의 사업에서 중복을 제거한 명부로 집계하는 예시입니다.',version:1,changes:[]},{id:'goal-reuse',orgId,planId:'year-2026',name:'600개의 물건을 다시 사용해요',unit:'개',target:600,definition:'수선 완료 기록의 고유 물품 수. 재작업은 제외합니다.',direction:'higher',aggregation:'sum',linkIds:['i3'],deduplication:'단일 프로젝트의 고유 물품 번호 기준입니다.',version:1,changes:[]}],annualReports:[],activities:[],
     reports: [], events: [{ id: 'a1', projectId: 'care', action: '9월 성과와 집행 기록을 모았어요', at }],
   };
 }
