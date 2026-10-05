@@ -1,10 +1,12 @@
 import type { Workspace, DocumentVersion } from '../domain/types';
 import { createSeed } from '../domain/seed';
 
-const KEY = 'value-lens-saas:workspace:v1';
-export function loadWorkspace(): Workspace {
-  const raw = localStorage.getItem(KEY);
-  if (!raw) return createSeed();
+export type WorkspaceMode = 'demo' | 'personal';
+// Keep the original demo key so existing visitors do not lose their work.
+const keys = { demo: 'value-lens-saas:workspace:v1', personal: 'value-lens-saas:personal-preview:v1' };
+export function loadWorkspace(mode: WorkspaceMode = 'demo'): Workspace | null {
+  const raw = localStorage.getItem(keys[mode]);
+  if (!raw) return mode === 'demo' ? createSeed() : null;
   const data = JSON.parse(raw) as Workspace;
   if (data.schemaVersion !== 1 || !Number.isSafeInteger(data.revision) || !data.organization?.id ||
     !['members', 'projects', 'tasks', 'documents', 'expenses', 'indicators', 'measurements', 'reports', 'events'].every(k => Array.isArray(data[k as keyof Workspace]))) {
@@ -12,10 +14,15 @@ export function loadWorkspace(): Workspace {
   }
   return data;
 }
-export function saveWorkspace(next: Workspace, expectedRevision: number): void {
-  const raw = localStorage.getItem(KEY);
+export function saveWorkspace(next: Workspace, expectedRevision: number, mode: WorkspaceMode = 'demo'): void {
+  const raw = localStorage.getItem(keys[mode]);
   if (raw && (JSON.parse(raw) as Workspace).revision !== expectedRevision) throw new Error('다른 창에서 변경했어요. 새로고침한 뒤 다시 저장해 주세요.');
-  localStorage.setItem(KEY, JSON.stringify(next));
+  if (raw && (JSON.parse(raw) as Workspace).organization.id !== next.organization.id) throw new Error('다른 작업실을 덮어쓸 수 없어요. 새로고침해 주세요.');
+  localStorage.setItem(keys[mode], JSON.stringify(next));
+}
+export function initializePersonalWorkspace(workspace: Workspace): void {
+  if (localStorage.getItem(keys.personal) !== null) throw new Error('이 브라우저에 만든 작업실이 있어요. 새로고침해서 이어서 사용해 주세요.');
+  localStorage.setItem(keys.personal, JSON.stringify(workspace));
 }
 function database(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
