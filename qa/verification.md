@@ -48,3 +48,12 @@
 - 전체 관리자 기본 거부, 명시 지정 계정만 허용, 내부 본문을 제외한 조직 메타데이터, 사유 필수의 정지와 감사 기록을 검증했다.
 - 브라우저에서 공식 loopback 개발 인증 → 빈 조직 → 첫 프로젝트 서버 저장 → 조직 관리자 → 초대 링크 생성까지 확인했다. 운영 환경 인증은 배포 후 별도 확인한다.
 - 로컬 검증 계정/조직은 운영 DB에 옮기지 않는다. 조직 관리자 화면 캡처는 `screenshots/organization-admin-local.png`다.
+# 2026-10-05 · Google 로그인 연결 준비와 기능 재점검
+
+- Supabase MCP 조직/프로젝트 조회 성공. 연결 대상 선택 및 OAuth 설정은 대기 중이며 업무 DB는 D1, 원본은 R2 유지.
+- `npm test`: 32개 통과. 기존 26개 + 공식 Supabase SDK를 통한 모의 인증 6개. 실제 Google 계정으로 로그인한 결과가 아님.
+- `npm run typecheck`, `npm run build`: 통과.
+- 로컬 브라우저: Google 전환 모드의 미설정 안내/비활성 버튼과 로그인 없는 기존 데모 접근 확인. 캡처: `screenshots/google-connection-pending-local.png`.
+- 실제 Google 로그인·토큰 만료 갱신·두 계정 조직 인수는 Supabase 프로젝트 및 OAuth 설정 이후 진행.
+- 운영 의존성: Next 16.3.8 및 관련 전이 의존성 패치 후 `npm audit --omit=dev` 0건. 개발 의존성 전체 진단 항목은 별도 정비 범위로 남아 있으며, 이번 검증을 전체 공급망 보안 완료로 간주하지 않음.
+- 실제 조직 보고서도 가상 조직으로 표시하던 문구 수정. 기능 전체 완료 여부는 `docs/07-implementation-audit.md`의 19개 영역 대조표가 기준.

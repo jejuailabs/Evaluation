@@ -1,6 +1,6 @@
 import type { Command, DocumentVersion, Workspace } from '../domain/types';
 import type { Actor } from '../../server/policy';
-export type Session={user:{userId:string;email:string;displayName:string}|null;organizations:{id:string;name:string;role:string;status:string}[];platformAdmin:boolean};
+export type Session={user:{userId:string;email:string;displayName:string}|null;organizations:{id:string;name:string;role:string;status:string}[];platformAdmin:boolean;auth?:{provider:'google'|'chatgpt';ready:boolean}};
 export type CloudWorkspace={workspace:Workspace;access:Actor};
 export class ApiError extends Error {constructor(public status:number,message:string){super(message);}}
 export async function api<T=any>(path:string,data?:unknown,method=data===undefined?'GET':'POST'):Promise<T>{
