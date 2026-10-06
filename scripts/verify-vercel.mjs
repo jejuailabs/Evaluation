@@ -28,6 +28,9 @@ const response=await handler.fetch(new Request('https://evaluation.example/api/s
 assert.equal(response.status,200);const session=await response.json();assert.equal(session.user,null);assert.equal(session.platformAdmin,false);assert.equal(session.auth.provider,'google');assert.equal(session.auth.ready,false);
 const login=await handler.fetch(new Request('https://evaluation.example/auth/google'));
 assert.equal(login.status,303);assert.ok(login.headers.get('location').includes('auth_error=configuration'));
+assert.equal(session.auth.emailReady,false);assert.equal(session.auth.googleReady,false);assert.equal(session.workspaceReady,false);
+const email=await handler.fetch(new Request('https://evaluation.example/auth/email',{method:'POST',headers:{Origin:'https://evaluation.example','Content-Type':'application/json','X-Value-Lens':'1'},body:JSON.stringify({email:'synthetic@example.test'})}));
+assert.equal(email.status,503);assert.equal((await email.json()).ok,undefined);
 let local={};try{local=parseEnv(readFileSync(new URL('../.env.local',import.meta.url),'utf8'));}catch{}
 const secrets=Object.entries(local).filter(([key,value])=>/SECRET|API_KEY|DATABASE_URL/.test(key)&&value.length>15).map(([,value])=>value);
 let bytes=0,files=0;const seen=new Set();

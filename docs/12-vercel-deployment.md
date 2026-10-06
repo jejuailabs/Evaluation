@@ -54,7 +54,15 @@ npm run storage:setup
 - 다운로드는 매번 권한 확인 후 60초 서명 URL을 반환합니다. URL을 받은 사용자는 만료 전까지 이용할 수 있으므로 즉시 권한 회수의 최대 지연은 60초입니다.
 - 업로드 예약은 2시간이며 미완료 예약은 선언한 크기를 속이는 과다 업로드를 막기 위해 건당 25MiB를 예약하며, 만료되더라도 원본 정리가 끝날 때까지 조직당 500MiB 한도에 포함합니다. `npm run storage:cleanup`은 만료 후 1시간이 더 지난 미완료 원본만 최대 100개 정리합니다. 실행 주기 자동화는 아직 등록하지 않았습니다.
 
-## Google 로그인
+## 이메일 인증과 Google 로그인
+
+시작 화면에는 **이메일로 가입·로그인**과 **Google로 계속하기**를 함께 표시합니다. 이메일은 비밀번호 없이 인증 링크를 받는 방식입니다. 처음 사용하는 이메일은 인증 후 가입되고, 기존 계정은 같은 방식으로 로그인합니다. 인증을 요청한 것만으로는 세션이나 조직을 만들지 않습니다.
+
+Supabase Auth에서 Email provider를 활성화합니다. Confirm signup과 Magic Link 메일 템플릿은 기본 `{{ .ConfirmationURL }}` 링크를 유지합니다. 서버가 PKCE challenge와 `APP_URL/auth/callback`을 지정하고, 이메일 링크의 인증 코드를 검증한 뒤 HttpOnly 세션 쿠키를 발급합니다. 요청한 브라우저에서 링크를 열어야 하며, 초대 링크의 이메일·조직 이동 경로도 유지합니다. 60초 재전송 안내와 공급자 발송 제한·오류 처리를 포함합니다.
+
+실제 이용자에게 발송하려면 Supabase의 Custom SMTP를 설정하고 발신 도메인을 인증해야 합니다. 기본 발송 서비스는 프로젝트 팀원 이메일·낮은 발송 한도로 제한될 수 있어 외부 회원가입의 운영 발송에 사용하지 않습니다. 이메일 템플릿에서 `ConfirmationURL`을 `TokenHash` 전용 링크로 임의 교체하지 않습니다.
+
+`/api/session`은 Supabase `/auth/v1/settings`의 Email·Google 활성화 상태를 확인합니다. 환경변수만 입력했다고 Google OAuth 연결을 완료로 표시하지 않습니다. 공급자 활성 여부는 OAuth 클라이언트·SMTP의 실제 작동 검증을 대신하지 않습니다.
 
 Supabase Auth → Providers에서 Google OAuth를 설정합니다. Google Cloud의 OAuth redirect URI는 Supabase가 표시하는 callback URL을 사용합니다. Supabase의 Site URL에는 `APP_URL`, Redirect URLs에는 `APP_URL/auth/callback`을 등록합니다. Google Client Secret은 Supabase Provider 설정에 저장합니다.
 

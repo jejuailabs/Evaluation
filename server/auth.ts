@@ -44,6 +44,39 @@ export function authStatus(env: AuthEnv) {
     : { provider: 'chatgpt' as const, ready: true };
 }
 
+export type AuthMethods = ReturnType<typeof authStatus> & {
+  emailReady: boolean;
+  googleReady: boolean;
+  status: 'unconfigured' | 'available' | 'unavailable';
+};
+const methodCache = new Map<string, { expires: number; value: AuthMethods }>();
+
+/** Check the actual provider switches, rather than treating configured keys as working OAuth. */
+export async function availableAuthMethods(env: AuthEnv, fetcher: typeof fetch = fetch): Promise<AuthMethods> {
+  const base = authStatus(env), config = configuration(env);
+  const disabled = { ...base, emailReady: false, googleReady: false, status: 'unconfigured' as const };
+  if (env.AUTH_PROVIDER !== 'supabase' || !config) return disabled;
+  const key = `${config.url}|${config.key}`;
+  const cached = fetcher === fetch ? methodCache.get(key) : undefined;
+  if (cached && cached.expires > Date.now()) return cached.value;
+  let value: AuthMethods;
+  try {
+    const response = await fetcher(`${config.url}/auth/v1/settings`, {
+      headers: { apikey: config.key }, signal: AbortSignal.timeout(4000), cache: 'no-store',
+    });
+    if (!response.ok) throw new Error('Auth settings unavailable');
+    const settings = await response.json() as { external?: { email?: boolean; google?: boolean } };
+    value = { ...base, emailReady: settings.external?.email === true, googleReady: settings.external?.google === true, status: 'available' };
+  } catch {
+    value = { ...disabled, status: 'unavailable' };
+  }
+  if (fetcher === fetch) {
+    if (methodCache.size > 8) methodCache.clear();
+    methodCache.set(key, { value, expires: Date.now() + (value.status === 'available' ? 60_000 : 10_000) });
+  }
+  return value;
+}
+
 export function identityFromUser(user: User | null): Identity | null {
   if (!user || user.is_anonymous || !user.email || !user.email_confirmed_at) return null;
   // Authorization comes from our membership records, never editable user_metadata.
@@ -87,7 +120,43 @@ export function createAuthContext(request: Request, env: AuthEnv, fetcher: typeo
   }
   async function handle(): Promise<Response> {
     const url = new URL(request.url), action = url.pathname.split('/').at(-1);
-    const failure = (code:string) => redirect(`/app?mode=app&auth_error=${code}#/start`);
+    const failure = (code:string) => {
+      const target = new URL(safeReturnTo(cookieMap.get(returnCookie) ?? url.searchParams.get('return_to')), url.origin);
+      target.searchParams.set('auth_error', code);
+      return redirect(`${target.pathname}${target.search}${target.hash}`);
+    };
+    const emailFailure = (status:number, error:string) => finish(Response.json({error},{status}));
+    if (action === 'email') {
+      if (request.method !== 'POST') return emailFailure(405, '이메일 인증 요청은 POST만 사용할 수 있어요.');
+      if (env.AUTH_PROVIDER !== 'supabase' || !client || !config) return emailFailure(503, '이메일 로그인 연결을 준비 중이에요.');
+      if (url.origin !== config.origin || request.headers.get('Origin') !== config.origin || request.headers.get('X-Value-Lens') !== '1') return emailFailure(403, '이 작업실에서 다시 시도해 주세요.');
+      if (!request.headers.get('Content-Type')?.toLowerCase().startsWith('application/json')) return emailFailure(415, '요청 형식을 확인해 주세요.');
+      if (Number(request.headers.get('Content-Length')) > 4096) return emailFailure(413, '요청이 너무 커요.');
+      let input: {email?: unknown; returnTo?: unknown};
+      try {
+        const raw = await request.text();
+        if (new TextEncoder().encode(raw).byteLength > 4096) return emailFailure(413, '요청이 너무 커요.');
+        const parsed: unknown = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Invalid input');
+        input = parsed;
+      } catch { return emailFailure(400, '이메일 주소를 확인해 주세요.'); }
+      const email = typeof input.email === 'string' ? input.email.trim().toLowerCase() : '';
+      if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return emailFailure(400, '이메일 주소를 확인해 주세요.');
+      const target = safeReturnTo(typeof input.returnTo === 'string' ? input.returnTo : undefined);
+      try {
+        // The session is only established after the email link's PKCE code is exchanged.
+        const { error } = await client.auth.signInWithOtp({ email, options: {
+          shouldCreateUser: true, emailRedirectTo: `${config.origin}/auth/callback`,
+        } });
+        if (error) {
+          if (error.status === 429) return emailFailure(429, '요청이 많아요. 잠시 후 다시 인증 메일을 요청해 주세요.');
+          // Do not disclose whether an address already has an account, or upstream details.
+          return emailFailure(503, '인증 메일을 보내지 못했어요. 잠시 후 다시 시도해 주세요.');
+        }
+        headers.append('Set-Cookie', serializeCookieHeader(returnCookie, target, { ...cookieOptions, maxAge:3600 }));
+        return finish(Response.json({ ok:true, retryAfter:60 }));
+      } catch { return emailFailure(503, '이메일 서비스에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.'); }
+    }
     if (env.AUTH_PROVIDER !== 'supabase' || !client || !config) return failure('configuration');
     if (url.origin !== config.origin) return finish(Response.json({error:'등록된 서비스 주소에서 로그인해 주세요.'},{status:403}));
     try {
