@@ -1,5 +1,5 @@
 import { AlignmentType, BorderStyle, Document, Footer, HeadingLevel, PageNumber, Packer, Paragraph, Table, TableCell, TableLayoutType, TableRow, TextRun, WidthType } from 'docx';
-import { exportMetrics, exportPeriod, exportTitle, isAnnualReport, type ExportReport } from './report-data';
+import { exportMetrics, exportPeriod, exportTitle, isAnnualReport, outcomeEvidenceText, type ExportReport } from './report-data';
 import { assessmentLabels } from '../domain/standards';
 import { money, number } from '../domain/selectors';
 
@@ -37,6 +37,7 @@ export async function reportDOCX(r: ExportReport): Promise<Blob> {
     if (m.planningSource) { const s = m.planningSource; children.push(p(`목표 설계 근거: ${s.documentName} / ${s.location}`), p(s.quote), p(`설계 원본 버전 ${s.evidence.versionId} / 담당자 확인 ${s.reviewedAt}`)); }
     children.push(p(`실적 원본 버전: ${m.evidenceVersionIds?.join(', ') ?? m.evidenceVersionId ?? '없음'}`));
     if (m.note) children.push(p(m.note)); if (m.warning) children.push(p(m.warning));
+    children.push(...outcomeEvidenceText(m).map(line=>p(line)));
   }
   if (!annual && r.activities?.length) { children.push(p('현장 기록', HeadingLevel.HEADING_1)); for (const a of r.activities) children.push(p(`${a.date} ${a.title}`, HeadingLevel.HEADING_2), p(a.body)); }
   children.push(p('해석과 다음 계획', HeadingLevel.HEADING_1), p(r.note || '아직 작성하지 않았습니다.'));

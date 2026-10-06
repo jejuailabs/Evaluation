@@ -7,6 +7,7 @@ import { envelopeSchema } from './commands-schema';
 import { aiReady, planningRequestSchema, suggestPlan, type AIEnv } from './planning-ai';
 import type { Database, Statement, ObjectStore } from './database';
 import { joinKeyOptions, listJoinKeys, newJoinKey, redeemJoinKey } from './join-keys';
+import { outcomeRequestSchema, outcomeInput, outcomeFileLimit, suggestOutcomes, signOutcome, verifyOutcome } from './outcome-ai';
 
 export type Identity={userId:string;email:string;displayName:string};
 export type Services={DB:Database;BUCKET?:ObjectStore;PLATFORM_ADMIN_USER_IDS?:string} & AIEnv;
@@ -123,6 +124,45 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
    return json(draft);
   }
  }
+ if(parts[2]==='outcome-ai'&&parts.length===3){
+  if(actor.role==='viewer')throw new HttpError(403,'실적 분석은 내용을 기록할 수 있는 구성원만 할 수 있어요.');
+  if(method==='GET')return json({ready:aiReady(env),limit:20});
+  if(method==='POST'){
+   const input=outcomeRequestSchema.parse(await body(req));
+   const doc=state.documents.find(d=>d.id===input.documentId&&d.orgId===orgId),version=doc?.versions.find(v=>v.id===input.versionId);
+   if(!doc||!version)throw new HttpError(404,'이 조직의 자료와 버전을 선택해 주세요.');
+   projectAccess(actor,doc.projectId);
+   const project=state.projects.find(p=>p.id===doc.projectId);
+   if(!project||['completed','archived'].includes(project.status??''))throw new HttpError(400,'진행 중인 프로젝트에서 실적을 분석해 주세요.');
+   const indicators=state.indicators.filter(i=>i.projectId===project.id&&i.orgId===orgId&&input.indicatorIds.includes(i.id));
+   if(indicators.length!==new Set(input.indicatorIds).size)throw new HttpError(400,'같은 프로젝트의 지표를 선택해 주세요.');
+   if(!aiReady(env))throw new HttpError(503,'AI 서비스가 연결되지 않았어요. 직접 실적을 기록할 수 있어요.');
+   let bytes:Uint8Array|undefined;
+   if(version.inlineText===undefined){
+    const file=await db.prepare('SELECT id,name,size FROM files WHERE id=? AND org_id=? AND project_id=?').bind(version.blobKey,orgId,project.id).first<{id:string;name:string;size:number}>();
+    if(!file||file.id!==version.id||file.name!==version.name)throw new HttpError(404,'보관된 원본을 찾지 못했어요.');
+    if(file.size>outcomeFileLimit(file.name))throw new HttpError(413,'실적 분석은 파일당 8MB, PDF는 5MB까지 가능해요. 필요한 부분을 나누어 올려 주세요.');
+    if(!env.BUCKET)throw new HttpError(503,'원본 저장소를 연결해야 해요.');
+    let timer:ReturnType<typeof setTimeout>|undefined;
+    try{
+     bytes=await Promise.race([(async()=>{const object=await env.BUCKET!.get(`${orgId}/${file.id}`);if(!object)throw new HttpError(404,'원본 파일이 없어요.');return new Uint8Array(await new Response(object.body).arrayBuffer());})(),new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new HttpError(504,'원본을 읽는 데 시간이 걸려요. 잠시 후 다시 시도해 주세요.')),10000);})]);
+    }finally{clearTimeout(timer);}
+    if(bytes.length!==file.size)throw new HttpError(409,'원본 크기가 바뀌었어요. 자료를 다시 확인해 주세요.');
+   }
+   const source=outcomeInput(version,bytes),since=new Date(Date.now()-86400000).toISOString();
+   // Serializable transaction bounds concurrent calls too. Failed paid calls still count.
+   const [reserved]=await db.batch([db.prepare("INSERT INTO operations (id,org_id,actor_id,action,request_hash,created_at) SELECT ?,?,?,'outcomes.ai',?,? WHERE (SELECT COUNT(*) FROM operations WHERE org_id=? AND action='outcomes.ai' AND created_at>=?)<20 AND EXISTS(SELECT 1 FROM organizations WHERE id=? AND revision=? AND status='active')").bind(uuid(),orgId,user.userId,await hash(JSON.stringify(input)),timestamp(),orgId,since,orgId,row.revision)]);
+   if(!reserved.meta.changes)throw new HttpError(429,'24시간 실적 분석 한도(조직당 20회)에 도달했거나 조직 상태가 바뀌었어요. 새로고침 후 확인해 주세요.');
+   const draft=await suggestOutcomes(env,source,indicators,project);
+   const fresh=await org(orgId);projectAccess(fresh.actor,project.id);
+   if(fresh.actor.role==='viewer')throw new HttpError(403,'기록 권한이 변경됐어요.');
+   const freshProject=fresh.state.projects.find(p=>p.id===project.id);
+   if(!freshProject||['completed','archived'].includes(freshProject.status??'')||indicators.some(i=>fresh.state.indicators.find(x=>x.id===i.id)?.version!==i.version))throw new HttpError(409,'분석 중 프로젝트나 지표가 바뀌었어요. 다시 확인해 주세요.');
+   if(!fresh.state.documents.find(d=>d.id===doc.id)?.versions.some(v=>v.id===version.id))throw new HttpError(409,'분석한 원본이 바뀌었어요.');
+   const evidence={documentId:doc.id,versionId:version.id};
+   return json({...draft,evidence,documentName:version.name,kind:source.kind,warnings:source.warnings,candidates:draft.candidates.map(c=>({...c,receipt:signOutcome(env,{orgId,projectId:project.id,userId:user.userId,evidence},c,indicators.find(i=>i.id===c.indicatorId)!,source)}))});
+  }
+ }
  if(parts[2]==='commands'&&method==='POST'){
   const input=envelopeSchema.parse(await body(req));const command=input.command as Command;authorizeCommand(actor,command,state);
   const requestHash=await hash(JSON.stringify(input.command));
@@ -145,7 +185,14 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
    if(state.documents.some(d=>d.versions.some(x=>x.id===f.id)))throw new HttpError(409,'이미 연결한 원본이에요.');
    if(command.type==='document.add')command.document.versions=[canonical];else command.version=canonical;
   }
-  if(command.type==='measurement.add')command.measurement.createdAt=timestamp();
+  if(command.type==='measurement.add'){
+   command.measurement.createdAt=timestamp();
+   if(command.aiReceipt){
+    const indicator=state.indicators.find(i=>i.id===command.measurement.indicatorId&&i.projectId===pid);
+    if(!indicator)throw new HttpError(400,'프로젝트의 지표를 선택해 주세요.');
+    command.measurement.analysisSource=verifyOutcome(env,command.aiReceipt,user.userId,actor.memberId,command.measurement,indicator);
+   }
+  }
   let next:Workspace;try{next=execute(state,command,timestamp(),actor.memberId);}catch(e){throw new HttpError(400,(e as Error).message);}
   const encoded=JSON.stringify(next);if(new TextEncoder().encode(encoded).byteLength>1024*1024)throw new HttpError(413,'현재 단계의 조직 저장 한도에 도달했어요.');
   const updates=await db.batch([db.prepare("UPDATE organizations SET body=?,revision=revision+1 WHERE id=? AND revision=? AND status='active'").bind(encoded,orgId,input.revision),db.prepare('INSERT INTO operations (id,org_id,actor_id,action,request_hash,created_at) SELECT ?,?,?,?,?,? WHERE changes()>0').bind(input.id,orgId,user.userId,command.type,requestHash,timestamp())]);

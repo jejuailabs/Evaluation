@@ -1,3 +1,4 @@
+import type { OutcomeSource } from './outcome-analysis';
 export type ID = string;
 export type TaskStatus = 'todo' | 'doing' | 'done';
 export type ExpenseStatus = 'planned' | 'submitted' | 'returned' | 'confirmed' | 'paid' | 'cancelled';
@@ -25,12 +26,13 @@ export interface Indicator extends Scoped {
   planningSource?: PlanningSource;
 }
 export interface Measurement extends Scoped {
+  analysisSource?: OutcomeSource;
   indicatorId: ID; asOf: string; value: number; note: string; evidence: EvidenceRef;
   status: 'pending' | 'confirmed' | 'rejected'; createdAt: string; confirmedAt?: string;
   periodStart?: string; denominator?: number; assessment?: 'not-yet'|'partial'|'achieved'; supersedesId?: ID; reviewNote?: string;
 }
 export interface BudgetSummary { allocated: number; committed: number; spent: number; paid: number; available: number; unpaid: number }
-export interface MetricSummary { id: ID; name: string; unit: string; target: number | null; forecast: number | null; actual: number | null; rate: number | null; asOf?: string; source: string; sourceUrl?: string; definition: string; definitionVersion: number; evidenceName?: string; evidenceVersionId?: ID; note?: string; evidenceVersionIds?:ID[]; aggregation?:Indicator['aggregation']; assessment?:Measurement['assessment']; records?:number; direction?:Indicator['direction']; rubric?:string; warning?:string; planningSource?:PlanningSource }
+export interface MetricSummary { outcomeRecords?: Pick<Measurement,'asOf'|'periodStart'|'value'|'denominator'|'assessment'|'note'|'evidence'|'analysisSource'>[]; id: ID; name: string; unit: string; target: number | null; forecast: number | null; actual: number | null; rate: number | null; asOf?: string; source: string; sourceUrl?: string; definition: string; definitionVersion: number; evidenceName?: string; evidenceVersionId?: ID; note?: string; evidenceVersionIds?:ID[]; aggregation?:Indicator['aggregation']; assessment?:Measurement['assessment']; records?:number; direction?:Indicator['direction']; rubric?:string; warning?:string; planningSource?:PlanningSource }
 export interface Report extends Scoped {
   title: string; projectName: string; purpose: string; periodStart: string; asOf: string;
   createdAt: string; budget: BudgetSummary; metrics: MetricSummary[];
@@ -70,7 +72,7 @@ export type Command =
   | { type:'expense.pay'; projectId:ID; expenseId:ID; payment:Pick<ExpensePayment,'id'|'amount'|'date'|'note'|'evidence'> }
   | { type:'expense.payment.void'; projectId:ID; expenseId:ID; paymentId:ID; reason:string }
   | { type: 'indicator.add'; indicator: Indicator }
-  | { type: 'measurement.add'; measurement: Measurement }
+  | { type: 'measurement.add'; measurement: Measurement; aiReceipt?: string }
   | { type: 'measurement.confirm'; projectId: ID; measurementId: ID }
   | { type: 'report.create'; projectId: ID; asOf: string; note: string; periodStart?:string }
   | { type:'annual.plan.save'; plan:Pick<AnnualPlan,'id'|'orgId'|'year'|'title'|'purpose'|'budget'>; reason:string }

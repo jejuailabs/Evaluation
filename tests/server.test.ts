@@ -4,6 +4,10 @@ import { postgresFixture } from './postgres-fixture';
 
 import { handleApi, type Identity, type Services } from '../server/api';
 import type { Command } from '../src/domain/types';
+import { reportSheets, outcomeEvidenceText } from '../src/infrastructure/report-data';
+import { reportHTML } from '../src/infrastructure/report';
+import { reportDOCX } from '../src/infrastructure/report-docx';
+import { unzipSync, strFromU8 } from 'fflate';
 
 let fixture:Awaited<ReturnType<typeof postgresFixture>>, env:Services;
 after(async()=>{await fixture?.close();});
@@ -20,6 +24,67 @@ async function cmd(orgId:string,command:Command,user=owner,revision?:number,id=c
 async function project(orgId:string){const w=await load(orgId);const id=crypto.randomUUID();const p={id,orgId,name:'돌봄 사업',purpose:'함께 기록해요',start:'2026-01-01',end:'2027-12-31',ownerId:w.workspace.members[0].id,budget:1000000,category:'돌봄'};assert.equal((await cmd(orgId,{type:'project.add',project:p})).status,200);return id;}
 async function invite(orgId:string,role='member'){const r=await call(`organizations/${orgId}/admin/invitations`,owner,{email:member.email,role});assert.equal(r.status,200);return r.url.split('/invite/')[1];}
 async function join(orgId:string,role='member'){const token=await invite(orgId,role);const accepted=await call('invitations/accept',member,{token});assert.equal(accepted.status,200);const w=await load(orgId,member);return w.access.memberId as string;}
+
+async function outcomeCase(){
+ const orgId=await create(),pid=await project(orgId),mid=await join(orgId),indicatorId=crypto.randomUUID();
+ await cmd(orgId,{type:'indicator.add',indicator:{id:indicatorId,orgId,projectId:pid,name:'고유 참여자',unit:'명',target:100,forecast:null,forecastNote:'',definition:'중복 제외 실제 참여자',source:'우리 조직 지표',aggregation:'cumulative-snapshot',direction:'higher',version:1}});
+ const text='2026-09-30 기준 실제 고유 참여자는 15명이다. 중복은 제외했다.',bytes=new TextEncoder().encode(text);
+ const uploaded=await handleApi(new Request(`https://app.example/api/organizations/${orgId}/files?project=${pid}`,{method:'POST',headers:{Origin:'https://app.example','X-Value-Lens':'1','X-File-Name':encodeURIComponent('현장 결과.txt'),'Content-Length':String(bytes.length)},body:bytes}),env,owner);
+ assert.equal(uploaded.status,201);const version:any=await uploaded.json(),documentId=crypto.randomUUID();
+ assert.equal((await cmd(orgId,{type:'document.add',document:{id:documentId,orgId,projectId:pid,title:'현장 결과',versions:[version]}})).status,200);
+ const input={documentId,versionId:version.id,indicatorIds:[indicatorId]},path=`organizations/${orgId}/outcome-ai`;
+ const candidate={indicatorId,value:15,denominator:null,assessment:null,asOf:'2026-09-30',periodStart:null,blockId:'line:1',location:'1행',quote:text,explanation:'명부의 실제 인원',uncertainty:'중복 제외 재확인'};
+ return {orgId,pid,mid,indicatorId,input,path,candidate};
+}
+test('현장 AI → 구성원 검토 → 관리자 확인 → 보고: 서명·중복·근거 이력을 보존하고 확정 전 집계 차단',async()=>{
+ const {orgId,pid,mid,indicatorId,input,path,candidate}=await outcomeCase();
+ assert.equal((await call(path,member,input)).status,403);assert.equal((await call(path,outsider,input)).status,403);
+ assert.equal((await call(path,owner,input)).status,503);
+ await call(`organizations/${orgId}/admin/assignments`,owner,{projectId:pid,memberId:mid,assigned:true});
+ env.OPENAI_API_KEY='test-only-key';env.OPENAI_MODEL='configured-model';let paid=0;const original=globalThis.fetch;
+ globalThis.fetch=(async(_url,init)=>{paid++;const sent=JSON.parse(init!.body as string);assert.match(sent.input[0].content[0].text,/15명/);return Response.json({status:'completed',output:[{type:'message',content:[{type:'output_text',text:JSON.stringify({summary:'실행 결과',candidates:[candidate]})}]}]});}) as typeof fetch;
+ try{
+  assert.equal((await call(path,member,{...input,indicatorIds:['foreign']})).status,400);assert.equal(paid,0);
+  const draft=await call(path,member,input);assert.equal(draft.status,200);assert.equal(draft.kind,'text');assert.equal(paid,1);
+  assert.equal((await load(orgId)).workspace.measurements.length,0);
+  const measurement:any={id:crypto.randomUUID(),orgId,projectId:pid,indicatorId,asOf:'2026-09-30',value:14,note:'중복 1명 추가 확인하여 제외',evidence:{documentId:input.documentId,versionId:input.versionId},status:'pending',createdAt:''};
+  const command:Command={type:'measurement.add',aiReceipt:draft.candidates[0].receipt,measurement};
+  assert.equal((await cmd(orgId,command,owner)).status,409); // receipt belongs to the reviewing member
+  assert.equal((await cmd(orgId,{...command,measurement:{...measurement,analysisSource:{id:'forged'}}} as any,member)).status,400);
+  assert.equal((await cmd(orgId,command,member)).status,200);
+  const saved=(await load(orgId)).workspace.measurements[0];assert.equal(saved.value,14);assert.equal(saved.analysisSource.proposed.value,15);assert.equal(saved.analysisSource.reviewedBy,mid);
+  assert.equal((await cmd(orgId,{...command,measurement:{...measurement,id:crypto.randomUUID()}},member)).status,400);
+  await cmd(orgId,{type:'report.create',projectId:pid,asOf:'2026-09-30',note:''});
+  const before=(await load(orgId)).workspace.reports[0];assert.equal(before.metrics[0].actual,null);assert.deepEqual(before.metrics[0].outcomeRecords,[]);assert.equal(before.pendingMeasurements,1);
+  assert.equal((await cmd(orgId,{type:'measurement.confirm',projectId:pid,measurementId:measurement.id},member)).status,403);
+  assert.equal((await cmd(orgId,{type:'measurement.confirm',projectId:pid,measurementId:measurement.id})).status,200);
+  await cmd(orgId,{type:'report.create',projectId:pid,asOf:'2026-09-30',note:''});
+  const report=(await load(orgId)).workspace.reports[0];assert.equal(report.metrics[0].actual,14);assert.ok(Math.abs(report.metrics[0].rate-14)<1e-9);
+  assert.match(outcomeEvidenceText(report.metrics[0]).join('\n'),/최초 제안: 15/);assert.match(reportHTML(report),/중복 1명 추가/);
+  assert.ok(reportSheets(report).find(s=>s.name==='AI 실적 검토'));
+  const docx=unzipSync(new Uint8Array(await(await reportDOCX(report)).arrayBuffer()));assert.match(strFromU8(docx['word/document.xml']),/최초 제안: 15/);
+  const planId=crypto.randomUUID();await cmd(orgId,{type:'annual.plan.save',plan:{id:planId,orgId,year:2026,title:'연간 계획',purpose:'돌봄',budget:0},reason:''});
+  await cmd(orgId,{type:'annual.goal.save',goal:{id:crypto.randomUUID(),orgId,planId,name:'고유 참여자',unit:'명',target:100,definition:'중복 제외',direction:'higher',aggregation:'sum',linkIds:[indicatorId],deduplication:'단일 프로젝트'},reason:''});
+  await cmd(orgId,{type:'annual.report.create',planId,start:'2026-01-01',end:'2026-09-30',note:''});
+  const annual=(await load(orgId)).workspace.annualReports[0];assert.equal(annual.goals[0].actual,14);assert.equal(annual.goals[0].metrics[0].outcomeRecords[0].analysisSource.proposed.value,15);
+  // Prior report is an immutable snapshot, not silently changed by later confirmation.
+  assert.equal((await load(orgId)).workspace.reports.find((r:any)=>r.id===before.id).metrics[0].actual,null);
+ }finally{globalThis.fetch=original;}
+});
+test('현장 AI는 변경된 권한·서명 버전·일일 한도·완료 프로젝트를 다시 검사',async()=>{
+ const {orgId,pid,mid,input,path,candidate}=await outcomeCase();env.OPENAI_API_KEY='test-key';env.OPENAI_MODEL='configured-model';
+ await call(`organizations/${orgId}/admin/assignments`,owner,{projectId:pid,memberId:mid,assigned:true});
+ const original=globalThis.fetch;let paid=0;
+ globalThis.fetch=(async()=>{paid++;await call(`organizations/${orgId}/admin/members/${mid}`,owner,{role:'viewer',active:true});return Response.json({status:'completed',output:[{type:'message',content:[{type:'output_text',text:JSON.stringify({summary:'결과',candidates:[candidate]})}]}]});}) as typeof fetch;
+ try{
+  assert.equal((await call(path,member,input)).status,403);assert.equal(paid,1);assert.equal((await call(path,member)).status,403);
+  assert.equal((await load(orgId)).workspace.measurements.length,0);
+  for(let n=0;n<19;n++)await env.DB.prepare('INSERT INTO operations (id,org_id,actor_id,action,request_hash,created_at) VALUES (?,?,?,?,?,?)').bind(crypto.randomUUID(),orgId,owner.userId,'outcomes.ai','test',new Date().toISOString()).run();
+  assert.equal((await call(path,owner,input)).status,429);assert.equal(paid,1);
+  const state=(await load(orgId)).workspace;state.projects[0].status='completed';await env.DB.prepare('UPDATE organizations SET body=? WHERE id=?').bind(JSON.stringify(state),orgId).run();
+  assert.equal((await call(path,owner,input)).status,400);assert.equal(paid,1);
+ }finally{globalThis.fetch=original;}
+});
 
 test('인증된 신규 계정은 소속 조직 없이 로그인하며 조직 정책은 그다음 적용',async()=>{
  const organizationId=await create();

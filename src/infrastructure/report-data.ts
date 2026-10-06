@@ -8,6 +8,15 @@ export const exportPeriod = (r: ExportReport) => isAnnualReport(r) ? `${r.start}
 export const exportMetrics = (r: ExportReport): (MetricSummary & {projectName?: string})[] => isAnnualReport(r) ? [...new Map(r.goals.flatMap(g => g.metrics).map(m => [m.id, m])).values()] : r.metrics;
 export type Cell = string | number | null;
 export interface ExportSheet { name: string; rows: Cell[][] }
+export function outcomeEvidenceText(m:MetricSummary):string[]{
+  return (m.outcomeRecords??[]).flatMap(r=>{const a=r.analysisSource;if(!a)return [];
+    return [`AI 제안에서 검토한 실적 · ${a.documentName} · ${a.location}`,
+      `확인 기록 ${r.periodStart?r.periodStart+' ~ ':''}${r.asOf}: ${r.assessment?assessmentLabels[r.assessment]:String(r.value)+(r.denominator!==undefined?' / '+r.denominator:' '+m.unit)}`,
+      `최초 제안: ${a.proposed.assessment?assessmentLabels[a.proposed.assessment]:a.proposed.value??'미확인'}${a.proposed.denominator!==null?' / '+a.proposed.denominator:''} · ${a.proposed.periodStart?a.proposed.periodStart+' ~ ':''}${a.proposed.asOf??'날짜 미확인'}`,
+      `인용: ${a.quote}`,`담당자 설명: ${r.note}`,`확인할 점: ${a.uncertainty||'원본·집계 정의 확인'}`,
+      `원본 버전 ${r.evidence.versionId} · 담당자 검토 ${a.reviewedAt} · ${a.kind==='text'?'인용문 본문 대조':'이미지·PDF 인용은 담당자 확인'} · 외부 인증 아님`];
+  });
+}
 export function reportSheets(r: ExportReport): ExportSheet[] {
   const metrics = exportMetrics(r);
   const sheets: ExportSheet[] = [{ name: '보고 개요', rows: [
@@ -22,6 +31,7 @@ export function reportSheets(r: ExportReport): ExportSheet[] {
     const source = m.planningSource;
     const rows: Cell[][] = (m.evidenceVersionIds ?? (m.evidenceVersionId ? [m.evidenceVersionId] : [])).map(id => [m.name, '확인 실적', id === m.evidenceVersionId ? m.evidenceName ?? '' : '', '', id, '', '']);
     if (source) rows.push([m.name, '목표 설계', source.documentName, source.location, source.evidence.versionId, source.quote, source.reviewedAt]);
+    for(const r of m.outcomeRecords??[]){const a=r.analysisSource;if(a)rows.push([m.name,'AI 제안 → 담당자 검토 → 관리자 확인',a.documentName,a.location,r.evidence.versionId,a.quote,a.reviewedAt]);}
     return rows;
   })] });
   if (isAnnualReport(r)) {
@@ -37,5 +47,6 @@ export function reportSheets(r: ExportReport): ExportSheet[] {
     sheets.push({name:'지급 원장',rows:[['프로젝트','요청 내용','지급일','금액 원','상태','입력자 번호','메모','증빙 문서','증빙 버전','입력 시각','정정 사유'],...r.finance.expenses.flatMap(e=>e.payments!==undefined?e.payments.filter(p=>p.date>=r.finance!.start&&p.date<=r.finance!.end).map(p=>[e.projectName,e.title,p.date,p.amount,p.voided?'무효':'유효',p.actorId,p.note,p.evidence.documentId,p.evidence.versionId,p.recordedAt,p.voided?.reason??''] as Cell[]):e.status==='paid'&&e.periodPaid>0?[[e.projectName,e.title,e.date,e.amount,'이전 지급 완료','','지급 원장이 없는 이전 자료',e.evidence?.documentId??'',e.evidence?.versionId??'','',''] as Cell[]]:[])]});
     sheets.push({name:'집행 처리 이력',rows:[['프로젝트','요청 내용','시각','처리','담당자 번호','사유','이전 내용','이전 금액 원','이전 집행일'],...r.finance.expenses.flatMap(e=>(e.history??[]).map(h=>[e.projectName,e.title,h.at,h.action,h.actorId,h.reason,h.previous?.title??'',h.previous?.amount??null,h.previous?.date??'']))]});
   }
+  if(metrics.some(m=>m.outcomeRecords?.length))sheets.push({name:'AI 실적 검토',rows:[['지표','검토 이력'],...metrics.flatMap(m=>outcomeEvidenceText(m).map(line=>[m.name,line]))]});
   return sheets;
 }

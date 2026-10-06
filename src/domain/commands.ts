@@ -88,6 +88,7 @@ export function execute(original: Workspace, input: Command, now = new Date().to
       const p = getProject(s, m.projectId);
       if (m.asOf < p.start || m.asOf > p.end || m.asOf > today()) throw new Error('실적 기준일은 사업 시작일부터 오늘 또는 사업 종료일까지예요.');
       if (m.status !== 'pending') throw new Error('실적은 검토 전 상태로 등록해야 해요.');
+      if (m.analysisSource && s.measurements.some(x => x.analysisSource?.id === m.analysisSource!.id && x.status !== 'rejected')) throw new Error('이미 기록한 AI 제안이에요. 기존 기록을 확인해 주세요.');
       if(i.aggregation==='period-sum'||i.aggregation==='ratio'){
         validDate(m.periodStart??'');if(m.periodStart!<p.start||m.periodStart!>m.asOf)throw new Error('집계 시작일을 확인해 주세요.');
       }
