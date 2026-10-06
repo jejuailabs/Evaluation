@@ -4,6 +4,7 @@ import {strToU8,zipSync} from 'fflate';
 import {outcomeInput,validateOutcomes,suggestOutcomes,signOutcome,verifyOutcome} from '../server/outcome-ai';
 import type {Indicator,Measurement,Project} from '../src/domain/types';
 import type {OutcomeCandidate} from '../src/domain/outcome-analysis';
+import {commandSchema} from '../server/commands-schema';
 
 const project:Project={id:'p',orgId:'o',name:'돌봄',purpose:'고립 완화',start:'2026-01-01',end:'2026-12-31',ownerId:'m',budget:0,category:'돌봄'};
 const indicator:Indicator={id:'i',orgId:'o',projectId:'p',name:'고유 참여자',unit:'명',definition:'중복 제외 실제 참여자',aggregation:'cumulative-snapshot',direction:'higher',target:100,forecast:null,forecastNote:'',source:'우리 조직 지표',version:1};
@@ -45,6 +46,10 @@ test('서명된 제안은 조직·작성자·지표 버전·원본에 묶이고 
  const evidence={documentId:'d',versionId:'v'}, token=signOutcome(env,{orgId:'o',projectId:'p',userId:'u',evidence},candidate,indicator,source);
  const measurement:Measurement={id:'m',orgId:'o',projectId:'p',indicatorId:'i',evidence,asOf:'2026-09-30',value:14,note:'중복 1명 추가 제외',createdAt:'',status:'pending'};
  const provenance=verifyOutcome(env,token,'u','member',measurement,indicator);assert.equal(provenance.proposed.value,15);assert.equal(provenance.reviewedBy,'member');assert.equal(measurement.value,14);
+ // UTF-8 Korean prose expands again in base64: valid maximum-length citations still fit.
+ const longToken=signOutcome(env,{orgId:'o',projectId:'p',userId:'u',evidence},{...candidate,quote:'글'.repeat(1500),uncertainty:'글'.repeat(1500),location:'글'.repeat(300)},indicator,{...source,name:'글'.repeat(255)});
+ assert.ok(commandSchema.safeParse({type:'measurement.add',measurement,aiReceipt:longToken}).success);
+ assert.equal(verifyOutcome(env,longToken,'u','member',measurement,indicator).quote.length,1500);
  for(const m of [{...measurement,orgId:'other'},{...measurement,projectId:'other'},{...measurement,indicatorId:'other'},{...measurement,evidence:{...evidence,versionId:'other'}}])assert.throws(()=>verifyOutcome(env,token,'u','member',m,indicator),/変|만료/);
  assert.throws(()=>verifyOutcome(env,token,'other','member',measurement,indicator),/만료/);
  assert.throws(()=>verifyOutcome(env,token,'u','member',measurement,{...indicator,version:2}),/만료/);

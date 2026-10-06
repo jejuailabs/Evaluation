@@ -83,7 +83,7 @@ export function signOutcome(env:AIEnv,context:Omit<Receipt,'expires'|'source'|'i
 }
 export function verifyOutcome(env:AIEnv,token:string,userId:string,memberId:string,measurement:Measurement,indicator:Indicator):OutcomeSource{
   try{
-    if(!env.OPENAI_API_KEY||token.length>16000)throw new Error('key');
+    if(!env.OPENAI_API_KEY||token.length>24000)throw new Error('key');
     const [payload,sig,extra]=token.split('.'),digest=Buffer.from(sig??'','base64url'),expected=signature(payload,env.OPENAI_API_KEY);
     if(extra||digest.length!==expected.length||!timingSafeEqual(digest,expected))throw new Error('signature');
     const r=JSON.parse(Buffer.from(payload,'base64url').toString()) as Receipt;
