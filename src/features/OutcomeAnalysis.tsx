@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import {audioMime} from '../domain/meeting';
 import type { EvidenceRef, Project } from '../domain/types';
 import type { OutcomeAnalysis as Analysis, OutcomeDraft } from '../domain/outcome-analysis';
 import { aggregationLabels, assessmentLabels } from '../domain/standards';
@@ -51,11 +52,12 @@ export function OutcomeAnalysis(ctx:Context&{project:Project;close:()=>void;revi
 export function EvidenceViewer({s,read,evidence,close}:Context&{evidence:EvidenceRef;close:()=>void}){
   const doc=s.documents.find(d=>d.id===evidence.documentId),version=doc?.versions.find(v=>v.id===evidence.versionId);
   const [url,setUrl]=useState(''),[content,setContent]=useState(''),[error,setError]=useState('');
+  const audio=version?audioMime(version.name):undefined;
   const image=!!version&&/\.(jpe?g|png|webp)$/i.test(version.name),pdf=!!version&&/\.pdf$/i.test(version.name);
   useEffect(()=>{let active=true,objectUrl='';(async()=>{try{if(!version)throw new Error('원본 버전을 찾지 못했어요.');const blob=await(read?read(version):readFile(version));if(!active)return;
-    const ext=version.name.split('.').at(-1)?.toLowerCase();const type=pdf?'application/pdf':image?`image/${ext==='jpg'?'jpeg':ext}`:'application/octet-stream';
+    const ext=version.name.split('.').at(-1)?.toLowerCase();const type=audio??(pdf?'application/pdf':image?`image/${ext==='jpg'?'jpeg':ext}`:'application/octet-stream');
     objectUrl=URL.createObjectURL(new Blob([blob],{type}));setUrl(objectUrl);
-    if(!image&&!pdf){const parsed=await readDocument(version.name,blob);if(active)setContent(parsed.blocks.map(b=>`${b.location}\n${b.text}`).join('\n\n'));}
+    if(!image&&!pdf&&!audio){const parsed=await readDocument(version.name,blob);if(active)setContent(parsed.blocks.map(b=>`${b.location}\n${b.text}`).join('\n\n'));}
   }catch(e){if(active)setError((e as Error).message);}})();return()=>{active=false;if(objectUrl)URL.revokeObjectURL(objectUrl);};},[version?.id]);
-  return <Modal wide title="기록의 원본 확인" close={close}><p>{doc?.title} · {version?.name} · 버전 {version?.id.slice(0,8)}</p>{url&&<a className="button secondary" href={url} download={version?.name}>원본 내려받기</a>}{error&&<p className="form-error" role="alert">{error}</p>}{!url&&!error&&<p role="status">원본을 불러오고 있어요…</p>}{url&&image&&<img className="evidence-preview" src={url} alt="분석한 원본 자료"/>}{url&&pdf&&<iframe className="evidence-pdf" src={url} title="분석한 원본 PDF"/>}{content&&<pre className="evidence-text">{content}</pre>}</Modal>;
+  return <Modal wide title="기록의 원본 확인" close={close}><p>{doc?.title} · {version?.name} · 버전 {version?.id.slice(0,8)}</p>{url&&<a className="button secondary" href={url} download={version?.name}>원본 내려받기</a>}{error&&<p className="form-error" role="alert">{error}</p>}{!url&&!error&&<p role="status">원본을 불러오고 있어요…</p>}{url&&audio&&<audio className="meeting-audio" src={url} controls/>}{url&&image&&<img className="evidence-preview" src={url} alt="분석한 원본 자료"/>}{url&&pdf&&<iframe className="evidence-pdf" src={url} title="분석한 원본 PDF"/>}{content&&<pre className="evidence-text">{content}</pre>}</Modal>;
 }

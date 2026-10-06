@@ -10,6 +10,8 @@ import { aiReady, planningRequestSchema, suggestPlan, type AIEnv } from './plann
 import type { Database, Statement, ObjectStore } from './database';
 import { joinKeyOptions, listJoinKeys, newJoinKey, redeemJoinKey } from './join-keys';
 import { outcomeRequestSchema, outcomeInput, outcomeFileLimit, suggestOutcomes, signOutcome, verifyOutcome } from './outcome-ai';
+import {transcribeAudio,transcriptionReady,validateAudio} from './meeting-ai';
+import {audioLimit} from '../src/domain/meeting';
 
 export type Identity={userId:string;email:string;displayName:string};
 export type Services={DB:Database;BUCKET?:ObjectStore;PLATFORM_ADMIN_USER_IDS?:string} & AIEnv;
@@ -57,6 +59,26 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
   return {row,actor,state};
  }
  async function result(orgId:string){const ctx=await org(orgId);return workspacePayload(ctx.state,ctx.actor);}
+ // Internal transcription transitions use the same CAS, receipt and transaction token as user commands.
+ async function saveTranscription(orgId:string,command:Extract<Command,{type:'intake.transcription.start'|'intake.transcription.finish'}>){
+  for(let retry=0;retry<4;retry++){
+   const fresh=await org(orgId);authorizeCommand(fresh.actor,command,fresh.state);
+   const since=new Date(Date.now()-86400000).toISOString();
+   const start=command.type==='intake.transcription.start';
+   if(start){const count=await db.prepare("SELECT COUNT(*) AS n FROM operations WHERE org_id=? AND action='intake.transcription.start' AND created_at>=?").bind(orgId,since).first<{n:number}>();if((count?.n??0)>=20)throw new HttpError(429,'음성 전사는 조직당 24시간에 20회까지예요. 실패한 요청도 포함해요.');}
+   let next:Workspace;try{next=execute(fresh.state,command,timestamp(),fresh.actor.memberId);}catch(e){throw new HttpError(409,(e as Error).message);}
+   const id=uuid(),token=uuid();
+   const guard=start?" AND (SELECT COUNT(*) FROM operations WHERE org_id=? AND action='intake.transcription.start' AND created_at>=?)<20":'';
+   const args:unknown[]=[JSON.stringify(workspaceMetadata(next)),orgId,fresh.row.revision];if(start)args.push(orgId,since);
+   const [saved]=await db.batch([
+    db.prepare(`UPDATE organizations SET body=?,storage_version=2,revision=revision+1 WHERE id=? AND revision=? AND status='active'${guard}`).bind(...args),
+    db.prepare("INSERT INTO operations(id,org_id,actor_id,action,request_hash,created_at) SELECT ?,?,?,?,?,? WHERE changes()>0 RETURNING set_config('value_lens.command_token',?,true)").bind(id,orgId,user.userId,command.type,'',timestamp(),token),
+    ...workspaceWrites(db,orgId,fresh.state,next,fresh.row.storage_version,id,fresh.row.body,token),
+   ]);
+   if(saved.meta.changes)return;
+  }
+  throw new HttpError(409,'조직 내용이 계속 바뀌고 있어요. 잠시 후 최신 상태를 확인해 주세요.');
+ }
  function audit(orgId:string,action:string,id=uuid(),requestHash=''){return db.prepare('INSERT INTO operations (id,org_id,actor_id,action,request_hash,created_at) VALUES (?,?,?,?,?,?)').bind(id,orgId,user.userId,action,requestHash,timestamp());}
  // ACL writes bump the same organization revision as project writes, preventing stale authorization snapshots.
  async function adminWrite(ctx:Awaited<ReturnType<typeof org>>,statements:Statement[],action:string){
@@ -168,6 +190,41 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
    if(!fresh.state.documents.find(d=>d.id===doc.id)?.versions.some(v=>v.id===version.id))throw new HttpError(409,'분석한 원본이 바뀌었어요.');
    const evidence={documentId:doc.id,versionId:version.id};
    return json({...draft,evidence,documentName:version.name,kind:source.kind,warnings:source.warnings,candidates:draft.candidates.map(c=>({...c,receipt:signOutcome(env,{orgId,projectId:project.id,userId:user.userId,evidence},c,indicators.find(i=>i.id===c.indicatorId)!,source)}))});
+  }
+ }
+ if(parts[2]==='meeting-ai'&&parts.length===3){
+  if(actor.role==='viewer')throw new HttpError(403,'회의 기록은 내용을 작성할 수 있는 구성원만 만들 수 있어요.');
+  if(method==='GET')return json({ready:transcriptionReady(env),limit:20});
+  if(method==='POST'){
+   const input=z.object({id:z.string().min(1).max(100)}).strict().parse(await body(req));
+   const item=state.intakeItems?.find(i=>i.id===input.id);
+   const attemptId=uuid(),start:Extract<Command,{type:'intake.transcription.start'}>={type:'intake.transcription.start',id:input.id,attemptId};
+   authorizeCommand(actor,start,state);
+   if(!item||item.status!=='pending')throw new HttpError(409,'분류 대기 중인 자료를 선택해 주세요.');
+   if(item.meeting)return json(await result(orgId)); // A lost response never pays for or overwrites an existing draft.
+   if(!transcriptionReady(env))throw new HttpError(503,'음성 전사가 연결되지 않았어요. 직접 회의 기록을 작성할 수 있어요.');
+   const file=await db.prepare('SELECT id,name,size FROM files WHERE id=? AND org_id=? AND project_id IS NULL').bind(item.version.blobKey,orgId).first<{id:string;name:string;size:number}>();
+   if(!file||file.id!==item.version.id||file.name!==item.version.name)throw new HttpError(404,'보관한 음성 원본을 찾지 못했어요.');
+   if(file.size>audioLimit)throw new HttpError(413,'음성 전사는 25MB(25,000,000바이트)까지 가능해요. 녹음을 나누어 주세요.');
+   if(!env.BUCKET)throw new HttpError(503,'원본 저장소를 연결해야 해요.');
+   await saveTranscription(orgId,start);
+   try{
+    let timer:ReturnType<typeof setTimeout>|undefined;
+    let bytes:Uint8Array;
+    try{bytes=await Promise.race([(async()=>{const object=await env.BUCKET!.get(`${orgId}/${file.id}`);if(!object)throw new HttpError(404,'음성 원본이 없어요.');return new Uint8Array(await new Response(object.body).arrayBuffer());})(),new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new HttpError(504,'원본을 읽는 데 시간이 걸려요. 잠시 후 다시 시도해 주세요.')),10000);})]);}finally{clearTimeout(timer);}
+    if(bytes.length!==file.size)throw new HttpError(409,'원본 크기가 바뀌었어요. 자료를 확인해 주세요.');
+    validateAudio(file.name,bytes);
+    // Recheck after Storage, before sending private audio to the provider.
+    const check=await org(orgId);authorizeCommand(check.actor,start,check.state);
+    if(check.state.intakeItems?.find(i=>i.id===item.id)?.transcription?.id!==attemptId)throw new HttpError(409,'전사 요청이 바뀌었어요.');
+    const draft=await transcribeAudio(env,file.name,bytes);
+    await saveTranscription(orgId,{type:'intake.transcription.finish',id:item.id,attemptId,result:draft});
+   }catch(e){
+    const error=e instanceof HttpError?e:new HttpError(502,'전사하지 못했어요. 원본은 보관돼 있어요. 다시 시도해 주세요.');
+    await saveTranscription(orgId,{type:'intake.transcription.finish',id:item.id,attemptId,result:{error:error.message}}).catch(()=>{});
+    throw error;
+   }
+   return json(await result(orgId));
   }
  }
  if(parts[2]==='commands'&&method==='POST'){

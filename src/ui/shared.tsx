@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode, type FormEvent } from 'react';
 import type { Workspace, Command, EvidenceRef, DocumentVersion } from '../domain/types';
 
-export type Context = { s: Workspace; run: (command: Command) => Promise<boolean>; notify: (text: string) => void; canWrite?:boolean; canManage?:boolean; cloud?:boolean; memberId?:string; saveError?:string; clearError?:()=>void; uploadInbox?:(file:File)=>Promise<DocumentVersion>; upload?:(projectId:string,file:File)=>Promise<DocumentVersion>; read?:(version:DocumentVersion)=>Promise<Blob> };
+export type Context = { s: Workspace; refresh?:()=>Promise<void>; run: (command: Command) => Promise<boolean>; notify: (text: string) => void; canWrite?:boolean; canManage?:boolean; cloud?:boolean; memberId?:string; saveError?:string; clearError?:()=>void; uploadInbox?:(file:File)=>Promise<DocumentVersion>; upload?:(projectId:string,file:File)=>Promise<DocumentVersion>; read?:(version:DocumentVersion)=>Promise<Blob> };
 export function Icon({ name, size = 20 }: { name: string; size?: number }) {
   const paths: Record<string, ReactNode> = {
     home: <><path d="m3 10 9-7 9 7v10H3Z"/><path d="M9 20v-7h6v7"/></>,
@@ -26,7 +26,7 @@ export function Progress({ value, label }: { value: number | null; label?: strin
 export function Modal({ title, close, children, wide=false, error }: { title: string; close: () => void; children: ReactNode; wide?:boolean;error?:string }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => { const d = ref.current; d?.showModal(); return () => d?.close(); }, []);
-  return <dialog className={wide?'wide-dialog':undefined} ref={ref} onCancel={close} onClick={e => { if (e.target === ref.current) close(); }}><div className="dialog-head"><h2>{title}</h2><button className="icon-button" onClick={close} aria-label="닫기"><Icon name="close"/></button></div>{error&&<p className="form-error" role="alert">{error}</p>}{children}</dialog>;
+  return <dialog className={wide?'wide-dialog':undefined} ref={ref} onCancel={e=>{e.preventDefault();close();}} onClick={e => { if (e.target === ref.current) close(); }}><div className="dialog-head"><h2>{title}</h2><button className="icon-button" onClick={close} aria-label="닫기"><Icon name="close"/></button></div>{error&&<p className="form-error" role="alert">{error}</p>}{children}</dialog>;
 }
 export function Form({ submit, children, label = '저장' }: { submit: (data: FormData) => void | Promise<void>; children?: ReactNode; label?: string }) {
   const [busy, setBusy] = useState(false);

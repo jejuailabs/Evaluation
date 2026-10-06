@@ -5,16 +5,17 @@ export const isManager=(role:string)=>role==='owner'||role==='admin';
 export class HttpError extends Error { constructor(public status:number,message:string){super(message);} }
 export function requireManager(actor:Actor){if(!isManager(actor.role))throw new HttpError(403,'조직 관리자만 사용할 수 있어요.');}
 export function projectAccess(actor:Actor,projectId:string){if(!isManager(actor.role)&&!actor.projects.includes(projectId))throw new HttpError(403,'참여한 프로젝트만 열 수 있어요.');}
-export function commandProject(c:Command):string {if(c.type.startsWith('annual.')||c.type==='intake.add'||c.type==='intake.archive')return '';if('projectId' in c)return c.projectId;for(const key of ['project','task','document','expense','indicator','measurement','activity','line','series'] as const)if(key in c){const row=(c as any)[key];return key==='project'?row.id:row.projectId;}throw new HttpError(400,'지원하지 않는 변경이에요.');}
+export function commandProject(c:Command):string {if(c.type.startsWith('annual.')||(c.type.startsWith('intake.')&&c.type!=='intake.assign'))return '';if('projectId' in c)return c.projectId;for(const key of ['project','task','document','expense','indicator','measurement','activity','line','series'] as const)if(key in c){const row=(c as any)[key];return key==='project'?row.id:row.projectId;}throw new HttpError(400,'지원하지 않는 변경이에요.');}
 export function authorizeCommand(actor:Actor,c:Command,s:Workspace){
   if(actor.role==='viewer')throw new HttpError(403,'읽기 전용 구성원은 내용을 변경할 수 없어요.');
   if(c.type.startsWith('annual.')){requireManager(actor);return;}
   if(c.type.startsWith('intake.')){
     if(c.type==='intake.add')return;
-    if(c.type==='intake.assign'||c.type==='intake.archive'){
+    if('id' in c){
       const item=s.intakeItems?.find(i=>i.id===c.id);if(!item)throw new HttpError(404,'자료를 찾지 못했어요.');
       if(!isManager(actor.role)&&item.createdById!==actor.memberId)throw new HttpError(403,'본인이 올린 자료만 분류할 수 있어요.');
-      if(c.type==='intake.archive')return;
+      if(item.projectId)projectAccess(actor,item.projectId);
+      if(c.type!=='intake.assign')return;
     }
   }
   if(c.type.startsWith('task.series.'))requireManager(actor);

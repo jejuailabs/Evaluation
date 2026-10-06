@@ -99,3 +99,7 @@ dialog .dialog-head{position:sticky;top:0;z-index:4;background:var(--surface);pa
 @media(max-width:640px){.recurrence-panel .section-title{align-items:flex-start;flex-direction:column}.library-tabs button{font-size:14px}.document-row>.actions{flex-wrap:wrap}}
 
 .task-table table{min-width:620px}.task-table td:nth-child(2),.task-table td:nth-child(3){white-space:nowrap}
+
+.meeting-audio{display:block;width:100%;max-width:100%;margin:16px 0}.meeting-transcribe,.meeting-original,.recording-status{margin:20px 0}.recording-status strong{display:block;font-size:24px;margin-bottom:16px}.meeting-original pre{max-height:320px;overflow:auto}
+
+@media(max-width:640px){.document-row>.actions{margin-left:0;min-width:0;max-width:100%;width:100%;flex-wrap:wrap;justify-content:flex-start}.page-heading>.actions{max-width:100%;flex-wrap:wrap}}

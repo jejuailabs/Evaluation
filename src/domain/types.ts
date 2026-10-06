@@ -1,4 +1,5 @@
 import type { OutcomeSource } from './outcome-analysis';
+import type { MeetingRecord, TranscriptionAttempt } from './meeting';
 export type ID = string;
 export type TaskStatus = 'todo' | 'doing' | 'done';
 export type ExpenseStatus = 'planned' | 'submitted' | 'returned' | 'confirmed' | 'paid' | 'cancelled';
@@ -8,7 +9,7 @@ export interface Project { id: ID; orgId: ID; name: string; purpose: string; sta
 export interface Task extends Scoped { title: string; due: string; ownerId: ID; status: TaskStatus; priority?: 'normal'|'high'; note?: string; indicatorId?: ID; completedAt?: string; seriesId?:ID; occurrence?:string; cancelled?:{at:string;actorId:ID;reason:string} }
 export type TaskTemplate = Pick<Task,'title'|'ownerId'|'priority'|'note'|'indicatorId'>;
 export interface TaskSeries extends Scoped, TaskTemplate { start:string;end:string;frequency:'daily'|'weekly'|'monthly';interval:number;status:'active'|'stopped';createdAt:string;createdById:ID;version:number;changes:{at:string;actorId:ID;reason:string;effectiveFrom:string;previous:TaskTemplate;action:'update'|'stop'}[] }
-export interface IntakeItem {id:ID;orgId:ID;projectId?:ID;title:string;note:string;version:DocumentVersion;createdById:ID;createdAt:string;status:'pending'|'linked'|'archived';documentId?:ID;activityId?:ID;history:{at:string;actorId:ID;action:string;reason:string}[]}
+export interface IntakeItem {id:ID;orgId:ID;projectId?:ID;title:string;note:string;version:DocumentVersion;createdById:ID;createdAt:string;status:'pending'|'linked'|'archived';documentId?:ID;activityId?:ID;meeting?:MeetingRecord;transcription?:TranscriptionAttempt;meetingDocumentId?:ID;history:{at:string;actorId:ID;action:string;reason:string}[]}
 export interface DocumentVersion { id: ID; name: string; size: number; createdAt: string; blobKey?: string; inlineText?: string }
 export interface Document extends Scoped { title: string; versions: DocumentVersion[] }
 export interface EvidenceRef { documentId: ID; versionId: ID }
@@ -62,6 +63,10 @@ export interface Workspace {
   taskSeries?:TaskSeries[]; intakeItems?:IntakeItem[];
 }
 export type Command =
+  | {type:'intake.meeting.save';id:ID;expectedRevision:number;text:string;notes:string;reviewed:boolean}
+  // Internal server commands; deliberately absent from the public command schema.
+  | {type:'intake.transcription.start';id:ID;attemptId:ID}
+  | {type:'intake.transcription.finish';id:ID;attemptId:ID;result:{text:string;model:string}|{error:string}}
   | {type:'task.series.create';series:Pick<TaskSeries,'id'|'orgId'|'projectId'|'start'|'end'|'frequency'|'interval'> & TaskTemplate}
   | {type:'task.series.update';projectId:ID;seriesId:ID;fields:TaskTemplate;effectiveFrom:string;reason:string}
   | {type:'task.series.stop';projectId:ID;seriesId:ID;effectiveFrom:string;reason:string}

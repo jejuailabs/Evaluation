@@ -8,6 +8,7 @@ const project=z.object({id,orgId:id,name:z.string().min(1).max(80),purpose:text,
 const task=z.object({...scope,title:z.string().min(1).max(160),due:date,ownerId:id,status:z.enum(['todo','doing','done']),priority:z.enum(['normal','high']).optional(),note:text.optional(),indicatorId:id.optional(),completedAt:z.string().max(40).optional()}).strict();
 const template={title:z.string().min(1).max(160),ownerId:id,priority:z.enum(['normal','high']).optional(),note:text.optional(),indicatorId:id.optional()};
 export const commandSchema=z.discriminatedUnion('type',[
+ z.object({type:z.literal('intake.meeting.save'),id,expectedRevision:num.int(),text:z.string().trim().min(1).max(30000),notes:text,reviewed:z.boolean()}).strict(),
  z.object({type:z.literal('task.series.create'),series:z.object({...scope,id:z.string().min(1).max(85),...template,start:date,end:date,frequency:z.enum(['daily','weekly','monthly']),interval:num.int().min(1).max(12)}).strict()}).strict(),
  z.object({type:z.literal('task.series.update'),projectId:id,seriesId:id,fields:z.object(template).strict(),effectiveFrom:date,reason:text.min(1)}).strict(),
  z.object({type:z.literal('task.series.stop'),projectId:id,seriesId:id,effectiveFrom:date,reason:text.min(1)}).strict(),

@@ -5,6 +5,9 @@ import { download, readFile, saveFile } from '../infrastructure/storage';
 import type { Document, DocumentVersion } from '../domain/types';
 import { type Context, Empty, Field, Form, Heading, Icon, Modal, Pill, textValue } from '../ui/shared';
 import { DocumentReview } from './DocumentReview';
+import {EvidenceViewer} from './OutcomeAnalysis';
+import {MeetingReview} from './MeetingReview';
+import {audioMime} from '../domain/meeting';
 
 type UploadItem = { id: string; file: File; title?: string; status: 'waiting'|'saved'|'error'; error?: string; version?: DocumentVersion };
 export function Documents(ctx: Context & { projectId?: string }) {
@@ -48,6 +51,6 @@ export function Documents(ctx: Context & { projectId?: string }) {
     }}><fieldset disabled={busy || queue.some(q => q.version)} className="upload-fields">{!versionOf && !projectId && <Field label="프로젝트"><select value={uploadProject} onChange={e => setUploadProject(e.target.value)} required>{activeProjects.map(p => <option value={p.id} key={p.id}>{p.name}</option>)}</select></Field>}{!versionOf && queue.length <= 1 && <Field label="자료 이름 · 비워 두면 파일명 사용"><input name="title" maxLength={160}/></Field>}</fieldset>{versionOf && <p className="muted">{versionOf.title} · 기존 버전과 연결된 근거는 그대로 남아요.</p>}
       <Field label={versionOf ? '새 원본 선택' : '파일 선택 · 한 번에 최대 12개'}><input type="file" multiple={!versionOf} disabled={busy || queue.some(q => q.version)} onChange={e => { const files = [...(e.target.files ?? [])]; if (files.length > 12) { notify('한 번에 12개까지 선택해 주세요.'); e.target.value = ''; setQueue([]); return; } setQueue(files.map(file => ({ id: uid(), file, status: 'waiting' }))); }}/></Field>
       <div className="upload-queue" aria-live="polite">{queue.map(q => <div key={q.id}><strong>{q.file.name}</strong><span>{q.status === 'saved' ? '등록 완료' : q.status === 'error' ? q.error : '등록 대기'}</span></div>)}</div><p className="form-hint">원본을 먼저 보관해요. 등록 후 ‘내용 열기’에서 문서를 읽을 수 있어요. 여러 파일 중 실패한 파일만 다시 저장할 수 있어요.</p></Form></Modal>}
-    {reader && <DocumentReview key={reader.version.id} {...ctx} {...reader} close={() => setReader(null)}/>}
+    {reader && (audioMime(reader.version.name)?s.intakeItems?.find(i=>i.documentId===reader.document.id&&i.version.id===reader.version.id)?<MeetingReview key={reader.version.id} {...ctx} item={s.intakeItems.find(i=>i.documentId===reader.document.id&&i.version.id===reader.version.id)!} close={()=>setReader(null)}/>:<EvidenceViewer {...ctx} evidence={{documentId:reader.document.id,versionId:reader.version.id}} close={()=>setReader(null)}/>:<DocumentReview key={reader.version.id} {...ctx} {...reader} close={() => setReader(null)}/>)}
   </>;
 }
