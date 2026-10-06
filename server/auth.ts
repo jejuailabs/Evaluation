@@ -144,6 +144,7 @@ export function createAuthContext(request: Request, env: AuthEnv, fetcher: typeo
       if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return emailFailure(400, '이메일 주소를 확인해 주세요.');
       const target = safeReturnTo(typeof input.returnTo === 'string' ? input.returnTo : undefined);
       try {
+        // Public account registration is independent of organization membership.
         // The session is only established after the email link's PKCE code is exchanged.
         const { error } = await client.auth.signInWithOtp({ email, options: {
           shouldCreateUser: true, emailRedirectTo: `${config.origin}/auth/callback`,

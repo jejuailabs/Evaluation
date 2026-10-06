@@ -150,6 +150,21 @@ test('이메일 링크는 PKCE·확인된 이메일을 검증한 뒤 초대받�
  assert.match(wrongBrowser.headers.get('location')!,/auth_error=callback/);
 });
 
+test('조직·초대·Google 없이 일반 이메일로 가입하고 인증 후 조직 선택으로 이동',async()=>{
+ for(const email of ['public-user@gmail.com','public-user@naver.com','public-user@company.example']){
+  const fake=fakeAuth();
+  const sent=await createAuthContext(emailRequest({email}),env,fake.fetcher).handle();
+  assert.equal(sent.status,200);
+  const otp=fake.seen.find(x=>x.path==='/auth/v1/otp')!;
+  assert.equal(otp.body.email,email);assert.equal(otp.body.create_user,true);
+  assert.equal(await createAuthContext(request('/api/session',{headers:{Cookie:cookies(sent)}}),env,fake.fetcher).identity(),null);
+  const done=await createAuthContext(request('/auth/callback?code=good-code',{headers:{Cookie:cookies(sent)}}),env,fake.fetcher).handle();
+  assert.equal(done.status,303);
+  assert.equal(done.headers.get('location'),'/app?mode=app#/organizations');
+  assert.ok(!fake.seen.some(x=>x.path.includes('organizations')||x.path.includes('invitations')||x.path.includes('authorize')));
+ }
+});
+
 test('이메일 인증은 외부 사이트 요청·잘못된 입력·과도한 본문을 보내지 않음',async()=>{
  const fake=fakeAuth();
  const cases:[Request,number][]=[

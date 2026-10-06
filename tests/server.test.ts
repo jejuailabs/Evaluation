@@ -21,6 +21,22 @@ async function project(orgId:string){const w=await load(orgId);const id=crypto.r
 async function invite(orgId:string,role='member'){const r=await call(`organizations/${orgId}/admin/invitations`,owner,{email:member.email,role});assert.equal(r.status,200);return r.url.split('/invite/')[1];}
 async function join(orgId:string,role='member'){const token=await invite(orgId,role);const accepted=await call('invitations/accept',member,{token});assert.equal(accepted.status,200);const w=await load(orgId,member);return w.access.memberId as string;}
 
+test('인증된 신규 계정은 소속 조직 없이 로그인하며 조직 정책은 그다음 적용',async()=>{
+ const organizationId=await create();
+ const newcomer:Identity={userId:'new-public-account',email:'new-member@gmail.com',displayName:'새 사용자'};
+ const first=await call('session',newcomer);
+ assert.equal(first.status,200);assert.equal(first.user.userId,newcomer.userId);
+ assert.deepEqual(first.organizations,[]);assert.equal(first.platformAdmin,false);
+ assert.equal((await load(organizationId,newcomer)).status,403);
+ assert.equal((await call('organizations',null,{name:'미인증 조직'})).status,401);
+ const created=await call('organizations',newcomer,{name:'첫 조직'});
+ assert.equal(created.status,201);
+ const workspace=await load(created.id,newcomer);
+ assert.equal(workspace.access.role,'owner');assert.deepEqual(workspace.workspace.projects,[]);
+ assert.equal((await call('session',newcomer)).organizations.length,1);
+ assert.equal((await load(organizationId,newcomer)).status,403);
+});
+
 function directStore(){
  const objects=new Map<string,number>();
  env.BUCKET={put:async()=>{},get:async()=>null,delete:async key=>{objects.delete(key);},

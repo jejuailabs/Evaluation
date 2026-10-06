@@ -24,19 +24,20 @@ export function SignIn({session,invite,orgId,hash}:{session:Session|null;invite?
   finally {pending.current=false;setBusy(false);}
  }
  return <div className="account-welcome"><div>
-  <p className="eyebrow">우리 조직으로 시작하기</p><h1>로그인하고,<br/>우리의 일을 이어가요.</h1>
-  <p className="lede">이메일이나 Google 계정으로 간편하게 시작해요.<br/>처음이라면 빈 작업실에서 첫 프로젝트를 만들어요.</p>
+  <p className="eyebrow">누구나 이메일로 시작하기</p><h1>내 이메일로 가입하고,<br/>우리의 일을 시작해요.</h1>
+  <p className="lede">소속 조직이나 초대가 없어도 가입할 수 있어요.<br/>이메일을 인증하고 로그인한 다음, 조직을 선택해요.</p>
   <ol className="start-steps">
-   <li><span>01</span><div><strong>내 이메일로 시작해요</strong><p>인증 메일을 확인하거나 Google 계정으로 연결해요.</p></div></li>
-   <li><span>02</span><div><strong>{invite?'받은 초대를 수락해요':'조직을 만들거나 초대를 받아요'}</strong><p>초대받았다면 그 이메일 주소로 로그인해 주세요.</p></div></li>
-   <li><span>03</span><div><strong>우리 프로젝트에서 함께 일해요</strong><p>업무와 자료가 조직의 저장소에 모여요.</p></div></li>
+   <li><span>01</span><div><strong>이메일로 회원가입해요</strong><p>평소 사용하는 개인 이메일로도 가입할 수 있어요.</p></div></li>
+   <li><span>02</span><div><strong>인증메일을 확인하고 로그인해요</strong><p>받은 링크를 눌러 내 이메일을 확인해요.</p></div></li>
+   <li><span>03</span><div><strong>로그인 후 조직을 선택해요</strong><p>새 조직을 만들거나 기존 조직에 참여해요.</p></div></li>
   </ol>
  </div><section className="start-card auth-card" aria-labelledby="auth-title">
-  <Pill>조직 작업실</Pill><h2 id="auth-title">{invite?'조직 초대를 받으셨네요.':'우리의 일을 시작해요.'}</h2>
-  <p className="start-auth-note">{invite?'초대받은 이메일로 인증해 주세요.':'처음이라면 이메일 인증 후 가입되고, 이미 가입했다면 바로 로그인돼요.'}</p>
+  <Pill>개인 계정</Pill><h2 id="auth-title">이메일로 가입·로그인</h2>
+  <p className="start-auth-note">처음이라면 이메일 인증 후 가입되고, 이미 가입했다면 로그인돼요. 조직 정보는 아직 필요 없어요.</p>
+  {invite&&<p className="form-hint">받은 조직 초대는 로그인한 다음 확인해요.</p>}
   {authError&&<p className="form-error" role="alert">{messages[authError]??messages.callback}</p>}
   <form className="email-auth-form" onSubmit={sendEmail}>
-   <label className="field" htmlFor="login-email"><span>이메일 주소</span><input id="login-email" name="email" type="email" autoComplete="email" inputMode="email" required maxLength={254} placeholder="name@organization.org" value={email} disabled={busy} onChange={e=>{setEmail(e.target.value);setError('');}}/></label>
+   <label className="field" htmlFor="login-email"><span>이메일 주소</span><input id="login-email" name="email" type="email" autoComplete="email" inputMode="email" required maxLength={254} placeholder="내가 사용하는 이메일 주소" value={email} disabled={busy} onChange={e=>{setEmail(e.target.value);setError('');}}/></label>
    {error&&<p className="form-error" role="alert">{error}</p>}
    <button className="button primary full" type="submit" disabled={!emailReady||busy||remaining>0}>{busy?'인증 메일을 보내고 있어요…':remaining>0?`${remaining}초 후 다시 받기`:sentTo?'인증 메일 다시 받기':'이메일로 가입·로그인'}<Icon name="arrow"/></button>
    <p className="form-hint">비밀번호 없이, 이메일로 받은 링크를 눌러 인증해요.</p>
