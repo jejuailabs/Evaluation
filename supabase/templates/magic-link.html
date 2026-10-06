@@ -1,0 +1,25 @@
+{{ if eq .RedirectTo "https://evaluation-five-xi.vercel.app/auth/callback" }}
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f5f6f0;color:#24443b;word-break:keep-all;overflow-wrap:break-word;font-family:Arial,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;">
+<div style="display:none;font-size:1px;color:#f5f6f0;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;">아래 버튼을 눌러 우리 조직의 작업실로 이동해 주세요.</div>
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f5f6f0;"><tr><td align="center" style="padding:32px 16px;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:560px;background:#ffffff;border:1px solid #dfe5d8;border-radius:16px;"><tr><td style="padding:32px 24px;">
+<p style="margin:0 0 32px;font-size:18px;font-weight:bold;color:#244b3e;">가치 돋보기</p>
+<h1 style="margin:0 0 20px;font-size:26px;line-height:1.45;font-weight:bold;letter-spacing:-0.6px;">우리 조직의 작업실로 이어가요.</h1>
+<p style="margin:0 0 28px;font-size:16px;line-height:1.8;color:#42584f;">메일로 받은 번호로 간편하게 로그인해요.<br>우리 조직의 계획과 진행 중인 일을 이어서 확인해 보세요.</p>
+<p style="margin:0 0 12px;font-size:16px;line-height:1.8;color:#42584f;">로그인 화면에 아래 인증번호를 입력해 주세요.</p>
+<div style="margin:0 0 20px;padding:18px 12px;background:#f0f4eb;border-radius:8px;text-align:center;font-family:Arial,sans-serif;font-size:30px;letter-spacing:5px;font-weight:bold;color:#244b3e;">{{ .Token }}</div>
+<p style="margin:0 0 16px;font-size:14px;line-height:1.8;color:#68766e;">아래 버튼으로도 인증할 수 있어요.</p>
+<table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr><td bgcolor="#294f41" style="border-radius:8px;"><a href="{{ .ConfirmationURL }}" style="display:inline-block;padding:16px 24px;font-size:16px;font-weight:bold;line-height:1.4;color:#ffffff;text-decoration:none;border:1px solid #294f41;border-radius:8px;">가치 돋보기 로그인</a></td></tr></table>
+<p style="margin:28px 0 0;font-size:14px;line-height:1.8;color:#68766e;">버튼을 이용할 때는 메일을 요청한 브라우저에서 열어 주세요.<br>인증번호와 링크는 한 번만 사용할 수 있어요. 만료되었다면 로그인 화면에서 새 인증메일을 요청해 주세요.</p>
+<div style="margin-top:28px;padding-top:20px;border-top:1px solid #e4e8df;"><p style="margin:0;font-size:13px;line-height:1.8;color:#7a827b;">직접 요청하지 않았다면 이 메일은 무시하셔도 돼요.</p></div>
+</td></tr></table>
+<p style="margin:20px 0 0;font-size:12px;line-height:1.7;color:#7a827b;">가치 돋보기 · 계획부터 기록, 보고서까지 한곳에서</p>
+</td></tr></table></body></html>
+{{ else }}
+<h2>Your sign-in link</h2>
+
+<p>Follow the link below to sign in. This link expires shortly and can only be used once.</p>
+<p><a href="{{ .ConfirmationURL }}">Sign in</a></p>
+{{ end }}

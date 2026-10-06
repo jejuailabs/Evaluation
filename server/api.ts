@@ -6,6 +6,7 @@ import { authorizeCommand, commandProject, HttpError, isManager, projectAccess, 
 import { envelopeSchema } from './commands-schema';
 import { aiReady, planningRequestSchema, suggestPlan, type AIEnv } from './planning-ai';
 import type { Database, Statement, ObjectStore } from './database';
+import { joinKeyOptions, listJoinKeys, newJoinKey, redeemJoinKey } from './join-keys';
 
 export type Identity={userId:string;email:string;displayName:string};
 export type Services={DB:Database;BUCKET?:ObjectStore;PLATFORM_ADMIN_USER_IDS?:string} & AIEnv;
@@ -69,6 +70,7 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
   return json({user,organizations:organizations.results,platformAdmin:platform,initialWorkspace:requestedOrg?await result(requestedOrg):null});
  }
  await syncUser.run();
+ if(parts[0]==='organizations'&&parts[1]==='join'&&parts.length===2&&method==='POST')return json(await redeemJoinKey(db,user,await body(req)));
  if(parts[0]==='organizations'&&parts.length===1&&method==='POST'){
   const input=z.object({name:orgName}).strict().parse(await body(req));
   const count=await db.prepare("SELECT COUNT(*) AS n FROM memberships WHERE user_id=? AND role='owner'").bind(user.userId).first<{n:number}>();if((count?.n??0)>=20)throw new HttpError(429,'만들 수 있는 조직 수를 초과했어요.');
@@ -219,9 +221,21 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
  }
  if(parts[2]==='admin'){
   requireManager(actor);
+  if(parts[3]==='join-keys'&&method==='GET')return json({keys:await listJoinKeys(db,orgId)});
   if(method==='GET')return json({members:(await db.prepare('SELECT m.id,m.role,m.active,u.name,u.email FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.org_id=?').bind(orgId).all()).results,projects:state.projects.map(p=>({id:p.id,name:p.name})),assignments:(await db.prepare('SELECT project_id,member_id FROM project_members WHERE org_id=?').bind(orgId).all()).results,invitations:(await db.prepare('SELECT id,email,role,status,expires_at FROM invitations WHERE org_id=? ORDER BY created_at DESC LIMIT 100').bind(orgId).all()).results,audit:(await db.prepare('SELECT id,actor_id,action,created_at FROM operations WHERE org_id=? ORDER BY created_at DESC LIMIT 100').bind(orgId).all()).results});
   // Each ACL statement uses the revision guard inside one serializable transaction.
   const guard='EXISTS(SELECT 1 FROM organizations WHERE id=? AND revision=? AND status=\'active\')';
+  if(parts[3]==='join-keys'&&parts.length===4&&method==='POST'){
+   const input=joinKeyOptions.parse(await body(req)),key=await newJoinKey(input),createdAt=timestamp();
+   await adminWrite(ctx,[
+    db.prepare(`UPDATE organization_join_keys SET revoked_at=? WHERE org_id=? AND revoked_at IS NULL AND ${guard}`).bind(createdAt,orgId,orgId,row.revision),
+    db.prepare(`INSERT INTO organization_join_keys (id,org_id,token_hash,role,max_uses,uses,expires_at,created_by,created_at) SELECT ?,?,?,?,?,0,?,?,? WHERE ${guard}`).bind(key.id,orgId,key.digest,input.role,input.maxUses,key.expiresAt,user.userId,createdAt,orgId,row.revision),
+   ],'조직 가입키 발급·기존 키 폐기');
+   return json({id:key.id,code:key.code,expiresAt:key.expiresAt},201);
+  }
+  if(parts[3]==='join-keys'&&parts[4]&&method==='DELETE'){
+   await adminWrite(ctx,[db.prepare(`UPDATE organization_join_keys SET revoked_at=? WHERE id=? AND org_id=? AND revoked_at IS NULL AND ${guard}`).bind(timestamp(),parts[4],orgId,orgId,row.revision)],'조직 가입키 폐기');return json({ok:true});
+  }
   if(parts[3]==='invitations'&&method==='POST'){
    const input=inviteSchema.parse(await body(req));if(input.role==='admin'&&actor.role!=='owner')throw new HttpError(403,'관리자 초대는 조직 대표만 할 수 있어요.');
    const token=uuid().replaceAll('-','')+uuid().replaceAll('-',''),digest=await hash(token),expiresAt=new Date(Date.now()+7*86400000).toISOString();

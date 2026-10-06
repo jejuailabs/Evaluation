@@ -10,13 +10,17 @@ const cookies=(r:Response)=>r.headers.getSetCookie().map(c=>c.split(';')[0]).joi
 const token=(seconds=3600)=>[{}, {sub:user.id,exp:Math.floor(Date.now()/1000)+seconds,aud:'authenticated',iss:`${env.SUPABASE_URL}/auth/v1`},{}].map(x=>Buffer.from(JSON.stringify(x)).toString('base64url')).join('.');
 const emailRequest=(body:unknown,headers:Record<string,string>={})=>request('/auth/email',{method:'POST',headers:{Origin:env.APP_URL!,'Content-Type':'application/json','X-Value-Lens':'1',...headers},body:JSON.stringify(body)});
 function fakeAuth(){
- const seen:{path:string;body:any;redirectTo:string|null}[]=[];let revoked=false;
+ const seen:{path:string;body:any;redirectTo:string|null}[]=[];let revoked=false,otpUsed=false;
  const fetcher:typeof fetch=async(input,options)=>{
   const url=new URL(typeof input==='string'?input:input instanceof URL?input.href:input.url);
   assert.equal(url.origin,env.SUPABASE_URL);
   const body=typeof options?.body==='string'?JSON.parse(options.body):undefined;
   seen.push({path:url.pathname,body,redirectTo:url.searchParams.get('redirect_to')});
   if(url.pathname==='/auth/v1/otp')return Response.json({});
+  if(url.pathname==='/auth/v1/verify'){
+   if(otpUsed||body?.email!==user.email?.toLowerCase()||body?.token!=='654321'||body?.type!=='email')return Response.json({code:'otp_expired',msg:'Invalid or expired'}, {status:403});
+   otpUsed=true;return Response.json({access_token:token(),refresh_token:'test-refresh',token_type:'bearer',expires_in:3600,user});
+  }
   if(url.pathname==='/auth/v1/token'){
    if(body?.auth_code!=='good-code'||!body?.code_verifier)return Response.json({error:'invalid_grant',error_description:'Invalid code'},{status:400});
    return Response.json({access_token:token(),refresh_token:'test-refresh',token_type:'bearer',expires_in:3600,user});
@@ -226,4 +230,30 @@ test('메일 발송 설정 오류는 가입 자격 제한으로 안내하지 않
  const original=fake.seen.find(x=>x.path==='/auth/v1/otp')!,exchanged=fake.seen.find(x=>x.path==='/auth/v1/token')!;
  const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(exchanged.body.code_verifier));
  assert.equal(Buffer.from(digest).toString('base64url'),original.body.code_challenge);
+});
+
+const verifyRequest=(data:unknown,headers:Record<string,string>={})=>request('/auth/verify-email',{method:'POST',headers:{Origin:env.APP_URL!,'Content-Type':'application/json','X-Value-Lens':'1',...headers},body:JSON.stringify(data)});
+test('숫자 OTP 인증: 이메일 확인 후 HttpOnly 세션·안전한 복귀, 재사용 거부',async()=>{
+ const fake=fakeAuth(),input={email:user.email,token:'654321',returnTo:'/app?mode=start#/organizations'};
+ const invalid=await createAuthContext(verifyRequest({...input,token:'123456'}),env,fake.fetcher).handle();
+ assert.equal(invalid.status,400);assert.deepEqual(invalid.headers.getSetCookie(),[]);
+ const verified=await createAuthContext(verifyRequest(input),env,fake.fetcher).handle();
+ assert.equal(verified.status,200);assert.deepEqual(await verified.json(),{ok:true,redirectTo:'/app?mode=app#/organizations'});
+ assert.ok(verified.headers.getSetCookie().some(c=>c.startsWith('__Host-value-lens-auth=')&&c.includes('HttpOnly')&&c.includes('Secure')));
+ assert.equal((await createAuthContext(request('/api/session',{headers:{Cookie:cookies(verified)}}),env,fake.fetcher).identity())?.email,user.email?.toLowerCase());
+ const replay=await createAuthContext(verifyRequest(input),env,fake.fetcher).handle();
+ assert.equal(replay.status,400);assert.deepEqual(replay.headers.getSetCookie(),[]);
+});
+test('OTP 검증은 출처·헤더·형식 검사 후에만 공급자를 호출하며 외부 복귀를 차단',async()=>{
+ const fake=fakeAuth(),input={email:user.email,token:'654321',returnTo:'https://evil.test'};
+ for(const headers of [{Origin:'https://evil.test'},{'X-Value-Lens':'0'}] as Record<string,string>[])assert.equal((await createAuthContext(verifyRequest(input,headers),env,fake.fetcher).handle()).status,403);
+ for(const bad of ['12','abcdef','12345678901'])assert.equal((await createAuthContext(verifyRequest({...input,token:bad}),env,fake.fetcher).handle()).status,400);
+ assert.equal(fake.seen.length,0);
+ const good=await createAuthContext(verifyRequest(input),env,fake.fetcher).handle();
+ assert.deepEqual(await good.json(),{ok:true,redirectTo:'/app?mode=app#/organizations'});
+});
+test('OTP 공급자 요청 제한은 실제 Retry-After를 전달하고 세션을 쓰지 않음',async()=>{
+ const fetcher:typeof fetch=async()=>Response.json({code:'over_request_rate_limit',msg:'limited'},{status:429,headers:{'Retry-After':'120'}});
+ const result=await createAuthContext(verifyRequest({email:user.email,token:'654321'}),env,fetcher).handle();
+ assert.equal(result.status,429);assert.equal((await result.json() as {retryAfter:number}).retryAfter,120);assert.deepEqual(result.headers.getSetCookie(),[]);
 });

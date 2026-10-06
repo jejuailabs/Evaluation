@@ -93,7 +93,7 @@ export function createAuthContext(request: Request, env: AuthEnv, fetcher: typeo
   const authFetch: typeof fetch = async (input, options) => {
     const response = await fetcher(input, options);
     const target = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
-    if (target.origin === config?.url && target.pathname === '/auth/v1/otp' && response.status === 429) {
+    if (target.origin === config?.url && ['/auth/v1/otp', '/auth/v1/verify'].includes(target.pathname) && response.status === 429) {
       // The SDK does not retain response headers. Never invent a 60-second reset for a project quota.
       const retry = response.headers.get('Retry-After');
       const seconds = retry && /^\d+$/.test(retry) ? Number(retry) : retry ? Math.ceil((Date.parse(retry) - Date.now()) / 1000) : NaN;
@@ -144,13 +144,13 @@ export function createAuthContext(request: Request, env: AuthEnv, fetcher: typeo
         status, headers: retryAfter ? {'Retry-After': String(retryAfter)} : undefined,
       }));
     };
-    if (action === 'email') {
+    if (action === 'email' || action === 'verify-email') {
       if (request.method !== 'POST') return emailFailure(405, '이메일 인증 요청은 POST만 사용할 수 있어요.');
       if (env.AUTH_PROVIDER !== 'supabase' || !client || !config) return emailFailure(503, '이메일 로그인 연결을 준비 중이에요.');
       if (url.origin !== config.origin || request.headers.get('Origin') !== config.origin || request.headers.get('X-Value-Lens') !== '1') return emailFailure(403, '이 작업실에서 다시 시도해 주세요.');
       if (!request.headers.get('Content-Type')?.toLowerCase().startsWith('application/json')) return emailFailure(415, '요청 형식을 확인해 주세요.');
       if (Number(request.headers.get('Content-Length')) > 4096) return emailFailure(413, '요청이 너무 커요.');
-      let input: {email?: unknown; returnTo?: unknown};
+      let input: {email?: unknown; returnTo?: unknown; token?: unknown};
       try {
         const raw = await request.text();
         if (new TextEncoder().encode(raw).byteLength > 4096) return emailFailure(413, '요청이 너무 커요.');
@@ -161,9 +161,23 @@ export function createAuthContext(request: Request, env: AuthEnv, fetcher: typeo
       const email = typeof input.email === 'string' ? input.email.trim().toLowerCase() : '';
       if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return emailFailure(400, '이메일 주소를 확인해 주세요.');
       const target = safeReturnTo(typeof input.returnTo === 'string' ? input.returnTo : undefined);
+      if (action === 'verify-email') {
+        const token = typeof input.token === 'string' ? input.token.trim() : '';
+        if (!/^[0-9]{6,10}$/.test(token)) return emailFailure(400, '메일에 적힌 숫자 인증번호를 입력해 주세요.');
+        try {
+          const { data, error } = await client.auth.verifyOtp({ email, token, type: 'email' });
+          if (error?.status === 429) return emailFailure(429, '인증 시도가 잠시 제한됐어요. 잠시 후 다시 시도해 주세요.', 'request_rate_limit', emailRetryAfter);
+          if (error) return emailFailure(error.status && error.status >= 500 ? 503 : 400,
+            error.status && error.status >= 500 ? '로그인 서비스에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.' : '인증번호가 다르거나 만료됐어요. 가장 최근에 받은 번호를 확인해 주세요.');
+          const verified = data.session && await identity();
+          if (!verified || verified.email !== email) return emailFailure(400, '이메일 인증을 확인하지 못했어요. 새 인증번호를 요청해 주세요.');
+          headers.append('Set-Cookie', serializeCookieHeader(returnCookie, '', { ...cookieOptions, maxAge: 0 }));
+          return finish(Response.json({ ok: true, redirectTo: target }));
+        } catch { return emailFailure(503, '로그인 서비스에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.'); }
+      }
       try {
         // Public account registration is independent of organization membership.
-        // The session is only established after the email link's PKCE code is exchanged.
+        // A session requires a verified numeric OTP or the email link's PKCE exchange.
         const { error } = await client.auth.signInWithOtp({ email, options: {
           shouldCreateUser: true, emailRedirectTo: `${config.origin}/auth/callback`,
         } });

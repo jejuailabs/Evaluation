@@ -1,0 +1,4 @@
+{
+  "mailer_subjects_magic_link": "{{ if eq .RedirectTo \"https://evaluation-five-xi.vercel.app/auth/callback\" }}[가치 돋보기] 로그인 인증번호가 도착했어요{{ else }}Your sign-in link{{ end }}",
+  "mailer_subjects_confirmation": "{{ if eq .RedirectTo \"https://evaluation-five-xi.vercel.app/auth/callback\" }}[가치 돋보기] 이메일을 확인해 주세요{{ else }}Confirm your email address{{ end }}"
+}

@@ -69,15 +69,15 @@ npm run storage:setup
 
 ## 이메일 인증과 Google 로그인
 
-시작 화면에는 **이메일로 가입·로그인**과 **Google로 계속하기**를 함께 표시합니다. 이메일은 비밀번호 없이 인증 링크를 받는 방식입니다. 처음 사용하는 이메일은 인증 후 가입되고, 기존 계정은 같은 방식으로 로그인합니다. 인증을 요청한 것만으로는 세션이나 조직을 만들지 않습니다.
+시작 화면에는 **이메일로 가입·로그인**과 **Google로 계속하기**를 함께 표시합니다. 이메일은 비밀번호 없이 인증번호를 받아 화면에 입력하는 방식입니다. 기존 이메일 링크로도 인증할 수 있습니다. 처음 사용하는 이메일은 인증 후 가입되고, 기존 계정은 같은 방식으로 로그인합니다. 인증을 요청한 것만으로는 세션이나 조직을 만들지 않습니다.
 
 회원가입은 공개입니다. 개인 이메일도 허용하며 가입 전에 조직 소속, 조직 초대, 조직 키, Google 계정을 요구하지 않습니다. 인증 후 조직이 없는 사용자도 로그인 상태로 조직 선택 화면을 열고 새 조직을 만들 수 있습니다. 조직 데이터 권한은 로그인 이후 각 조직 API에서 별도로 검사합니다. 메일 제공자의 테스트 발송 제약을 조직 가입 자격으로 적용하지 않습니다.
 
-Supabase Auth에서 Email provider를 활성화합니다. Confirm signup과 Magic Link 메일 템플릿은 기본 `{{ .ConfirmationURL }}` 링크를 유지합니다. 서버가 PKCE challenge와 `APP_URL/auth/callback`을 지정하고, 이메일 링크의 인증 코드를 검증한 뒤 HttpOnly 세션 쿠키를 발급합니다. 요청한 브라우저에서 링크를 열어야 하며, 초대 링크의 이메일·조직 이동 경로도 유지합니다. 발송 성공 후에는 기본 60초 재전송 대기를 표시합니다. 429 오류는 발송 한도와 요청 제한으로 구분하며, 공급자가 `Retry-After`를 지정한 경우에만 오류 화면에 대기시간을 표시합니다. 실패한 재발송은 이전 인증 링크의 PKCE 쿠키를 덮어쓰지 않습니다.
+Supabase Auth에서 Email provider를 활성화합니다. Confirm signup과 Magic Link 메일 템플릿은 `{{ .Token }}` 숫자와 기존 `{{ .ConfirmationURL }}` 링크를 함께 제공합니다. 숫자는 서버의 `/auth/verify-email`에서 공식 SDK로 검증하고, 확인된 사용자에게 HttpOnly 세션을 발급합니다. 서버가 PKCE challenge와 `APP_URL/auth/callback`을 지정하고, 이메일 링크의 인증 코드를 검증한 뒤 HttpOnly 세션 쿠키를 발급합니다. 링크를 이용할 때는 요청한 브라우저에서 열어야 하며, 초대 링크의 이메일·조직 이동 경로도 유지합니다. 발송 성공 후에는 기본 60초 재전송 대기를 표시합니다. 429 오류는 발송 한도와 요청 제한으로 구분하며, 공급자가 `Retry-After`를 지정한 경우에만 오류 화면에 대기시간을 표시합니다. 실패한 재발송은 이전 인증 링크의 PKCE 쿠키를 덮어쓰지 않습니다.
 
-실제 이용자에게 발송하려면 Supabase의 Custom SMTP를 설정하고 발신 도메인을 인증해야 합니다. 기본 발송 서비스는 프로젝트 팀원 이메일·낮은 발송 한도로 제한될 수 있어 외부 회원가입의 운영 발송에 사용하지 않습니다. 이메일 템플릿에서 `ConfirmationURL`을 `TokenHash` 전용 링크로 임의 교체하지 않습니다.
+실제 이용자용 이메일 발송은 현재 Supabase Custom SMTP에 연결한 Gmail 계정을 사용합니다. Gmail SMTP를 사용하는 이 구성은 별도 메일 서비스 가입이나 별도 발신 도메인 등록을 요구하지 않습니다. 기본 발송 서비스는 프로젝트 팀원 이메일·낮은 발송 한도로 제한될 수 있어 외부 회원가입의 운영 발송에 사용하지 않습니다. 이메일 템플릿에서 `ConfirmationURL`을 `TokenHash` 전용 링크로 임의 교체하지 않습니다.
 
-2026-10-06 운영 Auth 로그에서 `429: email rate limit exceeded` 확인. Management API 재조회 결과 `rate_limit_email_sent: 2`, `smtp_max_frequency: 60`, SMTP host/user/password 미설정, Send Email hook 비활성입니다. 앞의 값은 프로젝트 발송 한도이고 뒤의 값은 재요청 간격이므로 60초 대기로 발송 한도가 해소된다고 보장하지 않습니다. 회원을 Supabase 팀원으로 추가하거나 이메일 확인을 해제하는 방식으로 우회하지 않습니다. 발송 연결 후 승인된 실제 주소의 수신 및 콜백까지 검증해야 합니다. [공식 발송 제한](https://supabase.com/docs/guides/auth/rate-limits), [공식 메일 발송 설정](https://supabase.com/docs/guides/auth/auth-smtp).
+2026-10-06 초기에는 운영 Auth 로그의 `429: email rate limit exceeded`와 기본 발송 한도 2건/시간·SMTP 미설정을 확인했습니다. 이후 사용자가 입력한 Gmail 앱 비밀번호로 TLS 계정 인증에 성공했고 `smtp.gmail.com:465`를 Supabase에 저장·재조회했습니다. 프로젝트 발송 한도는 30건/시간으로 변경했고 재요청 간격 60초·공개 가입·이메일 확인 정책은 유지했습니다. SMTP 인증 시험에서 실제 메일은 보내지 않았습니다. 따라서 외부 주소의 수신→링크 인증→최종 세션 발급은 여전히 별도 검증이 필요합니다. 발송 한도와 재요청 간격은 다른 값이며, 회원을 Supabase 팀원으로 추가하거나 이메일 확인을 해제하는 방식으로 우회하지 않습니다. [공식 발송 제한](https://supabase.com/docs/guides/auth/rate-limits), [공식 메일 발송 설정](https://supabase.com/docs/guides/auth/auth-smtp).
 
 `/api/session`은 Supabase `/auth/v1/settings`의 Email·Google 활성화 상태를 확인합니다. 환경변수만 입력했다고 Google OAuth 연결을 완료로 표시하지 않습니다. 공급자 활성 여부는 OAuth 클라이언트·SMTP의 실제 작동 검증을 대신하지 않습니다.
 

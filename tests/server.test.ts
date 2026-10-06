@@ -260,3 +260,52 @@ test('전체 관리자: 기본 권한 없음, 지정 계정만 메타데이터 �
  assert.equal((await load(orgId)).status,403);
  assert.equal((await call('platform')).audit.length,1);
 });
+
+async function issueKey(orgId:string,options={role:'member',days:7,maxUses:20}){const r=await call(`organizations/${orgId}/admin/join-keys`,owner,options);assert.equal(r.status,201);return r;}
+test('조직 가입키: 이메일 사전 등록 없이 가입, 해시 보관, 프로젝트 접근은 별도 배정',async()=>{
+ const orgId=await create(),pid=await project(orgId),key=await issueKey(orgId);
+ assert.match(key.code,/^VL-([A-Z2-9]{4}-){3}[A-Z2-9]{4}$/);
+ const stored=await env.DB.prepare('SELECT * FROM organization_join_keys WHERE id=?').bind(key.id).first<any>();
+ assert.equal(stored.token_hash.length,64);assert.ok(!JSON.stringify(stored).includes(key.code));
+ assert.equal((await call('organizations/join',null,{code:key.code})).status,401);
+ const joined=await call('organizations/join',member,{code:key.code.toLowerCase().replaceAll('-',' ')});assert.equal(joined.status,200);assert.equal(joined.id,orgId);
+ const workspace=await load(orgId,member);assert.equal(workspace.access.role,'member');assert.deepEqual(workspace.workspace.projects,[]);
+ const repeated=await call('organizations/join',member,{code:key.code});assert.equal(repeated.alreadyMember,true);
+ const list=await call(`organizations/${orgId}/admin/join-keys`);assert.equal(list.keys[0].uses,1);assert.equal(list.keys[0].token_hash,undefined);assert.equal(list.keys[0].code,undefined);
+ assert.equal((await call(`organizations/${orgId}/admin/join-keys`,member)).status,403);
+ assert.equal((await call(`organizations/${orgId}/admin/join-keys`,member,{role:'member',days:7,maxUses:3})).status,403);
+ await call(`organizations/${orgId}/admin/assignments`,owner,{projectId:pid,memberId:workspace.access.memberId,assigned:true});
+ assert.equal((await load(orgId,member)).workspace.projects.length,1);
+});
+test('가입키 갱신·폐기·만료·중지 조직·관리자 권한 발급 거부',async()=>{
+ const orgId=await create(),old=await issueKey(orgId),fresh=await issueKey(orgId,{role:'viewer',days:1,maxUses:2});
+ assert.equal((await call('organizations/join',member,{code:old.code})).status,410);
+ assert.equal((await call(`organizations/${orgId}/admin/join-keys`,owner,{role:'admin',days:1,maxUses:1})).status,400);
+ assert.equal((await call('organizations/join',member,{code:fresh.code})).status,200);
+ const memberId=(await load(orgId,member)).access.memberId;
+ assert.equal((await load(orgId,member)).access.role,'viewer');
+ await call(`organizations/${orgId}/admin/members/${memberId}`,owner,{role:'viewer',active:false});
+ assert.equal((await call('organizations/join',member,{code:fresh.code})).status,403);
+ await call(`organizations/${orgId}/admin/join-keys/${fresh.id}`,owner,{},'DELETE');
+ assert.equal((await call('organizations/join',outsider,{code:fresh.code})).status,410);
+ const expired=await issueKey(orgId);await env.DB.prepare("UPDATE organization_join_keys SET expires_at='2020-01-01' WHERE id=?").bind(expired.id).run();
+ assert.equal((await call('organizations/join',outsider,{code:expired.code})).status,410);
+ const paused=await issueKey(orgId);await env.DB.prepare("UPDATE organizations SET status='suspended' WHERE id=?").bind(orgId).run();
+ assert.equal((await call('organizations/join',outsider,{code:paused.code})).status,410);
+});
+test('가입키 인원 한도는 동시에 참여해도 초과되지 않으며 실패한 가입은 권한을 만들지 않음',async()=>{
+ const orgId=await create(),key=await issueKey(orgId,{role:'member',days:7,maxUses:1});
+ const results=await Promise.all([call('organizations/join',member,{code:key.code}),call('organizations/join',outsider,{code:key.code})]);
+ assert.deepEqual(results.map(r=>r.status).sort(),[200,410]);
+ const list=await call(`organizations/${orgId}/admin/join-keys`);assert.equal(list.keys[0].uses,1);
+ const count=await env.DB.prepare('SELECT COUNT(*) AS n FROM memberships WHERE org_id=?').bind(orgId).first<any>();assert.equal(Number(count.n),2);
+ const failed=results[0].status===410?member:outsider;assert.equal((await load(orgId,failed)).status,403);
+});
+test('가입키 추측 요청은 사용자별 10분 10회로 제한되고 시간 경과 뒤 다시 허용',async()=>{
+ const orgId=await create(),key=await issueKey(orgId);
+ for(let i=0;i<10;i++)assert.equal((await call('organizations/join',member,{code:'invalid-key'})).status,410);
+ assert.equal((await call('organizations/join',member,{code:key.code})).status,429);
+ assert.equal((await call('organizations/join',outsider,{code:key.code})).status,200);
+ await env.DB.prepare("UPDATE join_key_attempts SET window_start='2020-01-01' WHERE user_id=?").bind(member.userId).run();
+ assert.equal((await call('organizations/join',member,{code:key.code})).status,200);
+});
