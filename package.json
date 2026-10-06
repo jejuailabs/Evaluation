@@ -3,17 +3,22 @@
   "version": "0.1.0",
   "private": true,
   "engines": {
-    "node": ">=22.13.0"
+    "node": "22.x"
   },
   "scripts": {
     "install:ci": "node scripts/install-ci.mjs",
-    "dev": "node scripts/run-framework.mjs dev",
-    "build": "node scripts/run-framework.mjs build",
-    "start": "node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js dev --config dist/server/wrangler.json --local --persist-to .wrangler/state --ip 127.0.0.1 --inspector-port 0",
+    "dev": "vite dev",
+    "build": "vite build",
+    "start": "node --env-file-if-exists=.env.local .output/server/index.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "db:generate": "drizzle-kit generate",
     "test": "tsx --test tests/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:vercel": "node scripts/build-vercel.mjs",
+    "db:migrate": "node --env-file-if-exists=.env.local scripts/migrate-postgres.mjs",
+    "storage:setup": "node --env-file-if-exists=.env.local scripts/setup-storage.mjs",
+    "storage:cleanup": "node --env-file-if-exists=.env.local --import tsx scripts/cleanup-uploads.ts",
+    "verify:vercel": "node scripts/verify-vercel.mjs",
+    "db:generate:legacy": "drizzle-kit generate"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
@@ -35,6 +40,7 @@
     "next": "16.3.8",
     "next-themes": "^0.4.6",
     "pdfjs-dist": "6.4.299",
+    "pg": "8.23.1",
     "radix-ui": "^1.6.7",
     "react": "19.2.6",
     "react-day-picker": "^10.0.1",
@@ -50,8 +56,10 @@
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.37.1",
     "@cloudflare/workers-types": "4.20260515.1",
+    "@electric-sql/pglite": "0.5.8",
     "@tailwindcss/postcss": "4.2.1",
     "@types/node": "22.19.19",
+    "@types/pg": "8.23.1",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.2",
@@ -60,6 +68,7 @@
     "eslint": "9.39.4",
     "eslint-config-next": "16.3.4",
     "json-rpc-2.0": "1.7.1",
+    "nitro": "3.0.260903-beta",
     "raw-body": "3.0.2",
     "react-server-dom-webpack": "19.2.6",
     "tailwindcss": "4.2.1",

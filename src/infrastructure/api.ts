@@ -11,7 +11,17 @@ export const loadCloud=(orgId:string)=>api<CloudWorkspace>(`organizations/${enco
 export const sendCommand=(orgId:string,command:Command,revision:number,id:string)=>api<CloudWorkspace>(`organizations/${encodeURIComponent(orgId)}/commands`,{id,revision,command});
 export async function uploadCloud(orgId:string,projectId:string,file:File):Promise<DocumentVersion>{
  if(!file.size||file.size>25*1024*1024)throw new Error('비어 있지 않은 25MB 이내 파일을 선택해 주세요.');
- const response=await fetch(`/api/organizations/${encodeURIComponent(orgId)}/files?project=${encodeURIComponent(projectId)}`,{method:'POST',credentials:'same-origin',headers:{'X-Value-Lens':'1','X-File-Name':encodeURIComponent(file.name),'Content-Type':'application/octet-stream'},body:file});
- const result:any=await response.json();if(!response.ok)throw new ApiError(response.status,result.error);return result;
+ const path=`organizations/${encodeURIComponent(orgId)}/files`;
+ const prepared=await api<{id:string;uploadUrl:string}>(`${path}/prepare`,{projectId,name:file.name,size:file.size});
+ const form=new FormData();form.append('cacheControl','0');form.append('',file);
+ const response=await fetch(prepared.uploadUrl,{method:'PUT',credentials:'omit',headers:{'x-upsert':'false'},body:form});
+ if(!response.ok)throw new ApiError(response.status,'원본 업로드를 완료하지 못했어요. 파일을 다시 선택해 주세요.');
+ return api<DocumentVersion>(`${path}/complete`,{id:prepared.id});
 }
-export async function readCloud(orgId:string,version:DocumentVersion):Promise<Blob>{if(version.inlineText!==undefined)return new Blob([version.inlineText],{type:'text/plain;charset=utf-8'});const response=await fetch(`/api/organizations/${encodeURIComponent(orgId)}/files/${encodeURIComponent(version.id)}`,{credentials:'same-origin',cache:'no-store'});if(!response.ok){const data:any=await response.json();throw new ApiError(response.status,data.error);}return response.blob();}
+export async function readCloud(orgId:string,version:DocumentVersion):Promise<Blob>{
+ if(version.inlineText!==undefined)return new Blob([version.inlineText],{type:'text/plain;charset=utf-8'});
+ const signed=await api<{url:string}>(`organizations/${encodeURIComponent(orgId)}/files/${encodeURIComponent(version.id)}/url`);
+ const response=await fetch(signed.url,{credentials:'omit',cache:'no-store'});
+ if(!response.ok)throw new ApiError(response.status,'원본을 받지 못했어요. 다시 시도해 주세요.');
+ return response.blob();
+}

@@ -1,3 +1,5 @@
+> 배포 구조 갱신(2026-10-06): 아래는 기존 Sites/D1/R2 단계의 설계 기록을 포함합니다. 현재 Vercel·Supabase 연결 및 환경변수는 [12 배포 안내](12-vercel-deployment.md)가 기준입니다.
+
 # 08. Google 로그인 · Supabase 연결
 
 2026-10-05. 사용자 지시: ChatGPT 계정을 서비스의 기본 로그인으로 삼지 않고 최소 Google 로그인을 제공한다. Supabase MCP를 확인한다.

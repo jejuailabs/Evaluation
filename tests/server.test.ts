@@ -1,22 +1,17 @@
-import { test, beforeEach } from 'node:test';
+import { test, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { DatabaseSync } from 'node:sqlite';
-import { readFileSync, readdirSync } from 'node:fs';
+import { postgresFixture } from './postgres-fixture';
+
 import { handleApi, type Identity, type Services } from '../server/api';
 import type { Command } from '../src/domain/types';
 
-let sqlite:DatabaseSync, env:Services;
+let fixture:Awaited<ReturnType<typeof postgresFixture>>, env:Services;
+after(async()=>{await fixture?.close();});
 const owner:Identity={userId:'owner-a',email:'owner@test.example',displayName:'대표'}, member:Identity={userId:'member-b',email:'member@test.example',displayName:'구성원'}, outsider:Identity={userId:'outsider-c',email:'outsider@test.example',displayName:'다른 조직 사람'};
-class Statement {
- values:any[]=[];constructor(public sql:string){}
- bind(...values:any[]){this.values=values;return this;}
- async first(){return sqlite.prepare(this.sql).get(...this.values)??null;}
- async all(){return{results:sqlite.prepare(this.sql).all(...this.values),success:true};}
- async run(){const r=sqlite.prepare(this.sql).run(...this.values);return{success:true,meta:{changes:r.changes},results:[]};}
-}
-beforeEach(()=>{sqlite?.close();sqlite=new DatabaseSync(':memory:');sqlite.exec('PRAGMA foreign_keys=ON');for(const file of readdirSync(new URL('../drizzle/',import.meta.url)).filter(f=>f.endsWith('.sql')).sort())sqlite.exec(readFileSync(new URL('../drizzle/'+file,import.meta.url),'utf8'));sqlite.exec('PRAGMA optimize');
+beforeEach(async()=>{
+ await fixture?.close();fixture=await postgresFixture();
  const files=new Map<string,ArrayBuffer>();
- env={DB:{prepare:(sql:string)=>new Statement(sql),batch:async(statements:Statement[])=>{sqlite.exec('BEGIN');try{const results=[];for(const s of statements)results.push(await s.run());sqlite.exec('COMMIT');return results;}catch(e){sqlite.exec('ROLLBACK');throw e;}}} as unknown as D1Database,BUCKET:{put:async(key:string,value:ArrayBuffer)=>{files.set(key,value);},get:async(key:string)=>files.has(key)?{body:files.get(key)}:null,delete:async(key:string)=>{files.delete(key);}} as any};
+ env={DB:fixture.db,BUCKET:{put:async(key:string,value:ArrayBuffer)=>{files.set(key,value);},get:async(key:string)=>files.has(key)?{body:files.get(key)!}:null,delete:async(key:string)=>{files.delete(key);}}};
 });
 async function call(path:string,user:Identity|null=owner,data?:unknown,method=data===undefined?'GET':'POST',headers:Record<string,string>={}){const response=await handleApi(new Request(`https://app.example/api/${path}`,{method,headers:{Origin:'https://app.example','X-Value-Lens':'1','Content-Type':'application/json',...headers},body:data===undefined?undefined:JSON.stringify(data)}),env,user);const result:any=await response.json();return{status:response.status,...result};}
 async function create(user=owner){const o=await call('organizations',user,{name:'함께하는 조직'});assert.equal(o.status,201);return o.id as string;}
@@ -25,6 +20,67 @@ async function cmd(orgId:string,command:Command,user=owner,revision?:number,id=c
 async function project(orgId:string){const w=await load(orgId);const id=crypto.randomUUID();const p={id,orgId,name:'돌봄 사업',purpose:'함께 기록해요',start:'2026-01-01',end:'2027-12-31',ownerId:w.workspace.members[0].id,budget:1000000,category:'돌봄'};assert.equal((await cmd(orgId,{type:'project.add',project:p})).status,200);return id;}
 async function invite(orgId:string,role='member'){const r=await call(`organizations/${orgId}/admin/invitations`,owner,{email:member.email,role});assert.equal(r.status,200);return r.url.split('/invite/')[1];}
 async function join(orgId:string,role='member'){const token=await invite(orgId,role);const accepted=await call('invitations/accept',member,{token});assert.equal(accepted.status,200);const w=await load(orgId,member);return w.access.memberId as string;}
+
+function directStore(){
+ const objects=new Map<string,number>();
+ env.BUCKET={put:async()=>{},get:async()=>null,delete:async key=>{objects.delete(key);},
+  signUpload:async key=>`https://storage.example/upload/${key}?token=test-only`,head:async key=>objects.has(key)?{size:objects.get(key)!}:null,
+  signDownload:async(key,name)=>`https://storage.example/download/${key}?download=${encodeURIComponent(name)}`};
+ return objects;
+}
+test('직접 업로드: 권한 검사→원본 확인→등록·재시도→권한 있는 서명 다운로드',async()=>{
+ const orgId=await create(),pid=await project(orgId),mid=await join(orgId),objects=directStore();
+ const path=`organizations/${orgId}/files`,input={projectId:pid,name:'원본.hwpx',size:8*1024*1024};
+ assert.equal((await call(`${path}/prepare`,member,input)).status,403);
+ await call(`organizations/${orgId}/admin/assignments`,owner,{projectId:pid,memberId:mid,assigned:true});
+ const prepared=await call(`${path}/prepare`,member,input);assert.equal(prepared.status,201);assert.ok(prepared.uploadUrl.includes(prepared.id));
+ assert.equal((await call(`${path}/complete`,owner,{id:prepared.id})).status,410);
+ assert.equal((await call(`${path}/complete`,member,{id:prepared.id})).status,409);
+ objects.set(`${orgId}/${prepared.id}`,input.size);
+ const version=await call(`${path}/complete`,member,{id:prepared.id});assert.equal(version.status,201);assert.equal(version.size,input.size);
+ assert.equal((await call(`${path}/complete`,member,{id:prepared.id})).status,200);
+ assert.equal((await call(`${path}/${prepared.id}/url`,owner)).status,403);
+ assert.equal((await call(`${path}/${prepared.id}/url`,member)).status,200);
+ assert.equal((await call(`${path}/${prepared.id}/url`,outsider)).status,403);
+ await call(`organizations/${orgId}/admin/assignments`,owner,{projectId:pid,memberId:mid,assigned:false});
+ assert.equal((await call(`${path}/${prepared.id}/url`,member)).status,403);
+});
+test('직접 업로드: 파일 크기 변조·만료·권한 회수는 원본 등록을 막음',async()=>{
+ const orgId=await create(),pid=await project(orgId),mid=await join(orgId),objects=directStore(),path=`organizations/${orgId}/files`;
+ await call(`organizations/${orgId}/admin/assignments`,owner,{projectId:pid,memberId:mid,assigned:true});
+ const reserve=()=>call(`${path}/prepare`,member,{projectId:pid,name:'field.xlsx',size:100});
+ const wrong=await reserve();objects.set(`${orgId}/${wrong.id}`,101);assert.equal((await call(`${path}/complete`,member,{id:wrong.id})).status,400);assert.equal(objects.size,0);
+ const expired=await reserve();objects.set(`${orgId}/${expired.id}`,100);await env.DB.prepare('UPDATE file_uploads SET expires_at=? WHERE id=?').bind('2000-01-01',expired.id).run();
+ assert.equal((await call(`${path}/complete`,member,{id:expired.id})).status,410);
+ const revoked=await reserve();objects.set(`${orgId}/${revoked.id}`,100);
+ env.BUCKET!.head=async()=>{await call(`organizations/${orgId}/admin/members/${mid}`,owner,{role:'viewer',active:true});return{size:100};};
+ assert.equal((await call(`${path}/complete`,member,{id:revoked.id})).status,403);
+ assert.equal((await env.DB.prepare('SELECT COUNT(*) AS n FROM files').first<{n:number}>())!.n,0);
+});
+test('직접 업로드: 미완료 예약도 조직 저장 한도에 포함하고 완료·읽기 전용 상태를 검사',async()=>{
+ const orgId=await create(),pid=await project(orgId),path=`organizations/${orgId}/files`;directStore();
+ // Even a declared one-byte upload reserves the bucket maximum until verified.
+ const input={projectId:pid,name:'limit.bin',size:1};
+ for(let i=0;i<20;i++)assert.equal((await call(`${path}/prepare`,owner,input)).status,201);
+ assert.equal((await call(`${path}/prepare`,owner,input)).status,409);
+ assert.equal((await call(`${path}/prepare`,owner,{...input,size:25*1024*1024+1})).status,400);
+ const mid=await join(orgId,'viewer');await call(`organizations/${orgId}/admin/assignments`,owner,{projectId:pid,memberId:mid,assigned:true});
+ assert.equal((await call(`${path}/prepare`,member,{...input,size:1})).status,403);
+});
+test('PostgreSQL: 배치 실패는 전부 롤백하고 서버 역할은 DDL 권한이 없음',async()=>{
+ const orgId=await create();
+ await assert.rejects(env.DB.batch([env.DB.prepare('UPDATE organizations SET name=? WHERE id=?').bind('롤백될 이름',orgId),env.DB.prepare('INSERT INTO users (id,email,name,created_at) VALUES (?,?,?,?)').bind(owner.userId,'duplicate','duplicate','now')]));
+ assert.equal((await load(orgId)).workspace.organization.name,'함께하는 조직');
+ await assert.rejects(env.DB.prepare('CREATE TABLE value_lens.unwanted (id text)').run());
+ await fixture.pg.exec('CREATE ROLE browser_anon NOLOGIN; SET ROLE browser_anon;');
+ try{await assert.rejects(fixture.pg.query('SELECT * FROM value_lens.organizations'));}finally{await fixture.pg.exec('RESET ROLE');}
+});
+test('PostgreSQL: 같은 버전의 동시 수정 중 하나만 반영하고 감사 기록을 한 번 남김',async()=>{
+ const orgId=await create(),pid=await project(orgId),w=await load(orgId),p=w.workspace.projects[0];
+ const results=await Promise.all(['변경 A','변경 B'].map(name=>call(`organizations/${orgId}/commands`,owner,{id:crypto.randomUUID(),revision:w.workspace.revision,command:{type:'project.update',project:{...p,name},reason:'이름 수정'}})));
+ assert.deepEqual(results.map(r=>r.status).sort(),[200,409]);
+ assert.equal((await env.DB.prepare("SELECT COUNT(*) AS n FROM operations WHERE org_id=? AND action='project.update'").bind(orgId).first<{n:number}>())!.n,1);
+});
 
 test('집행 협업: 담당자 요청·보완·재요청과 관리자 승인·부분 지급을 서버 권한으로 구분',async()=>{
  const orgId=await create(),pid=await project(orgId),mid=await join(orgId),ownerMid=(await load(orgId)).access.memberId;
@@ -78,7 +134,7 @@ test('문서 AI 설계는 관리자·조직·원본 버전·설정·호출 한�
  globalThis.fetch=(async()=>{calls++;return Response.json({status:'completed',output:[{type:'message',content:[{type:'output_text',text:JSON.stringify({summary:'확인할 내용',candidates:[]})}]}]});}) as typeof fetch;
  try {
   assert.equal((await call(path,owner,input)).status,200);
-  for(let n=0;n<19;n++)sqlite.prepare('INSERT INTO operations (id,org_id,actor_id,action,request_hash,created_at) VALUES (?,?,?,?,?,?)').run(crypto.randomUUID(),orgId,owner.userId,'planning.ai','test',new Date().toISOString());
+  for(let n=0;n<19;n++)await env.DB.prepare('INSERT INTO operations (id,org_id,actor_id,action,request_hash,created_at) VALUES (?,?,?,?,?,?)').bind(crypto.randomUUID(),orgId,owner.userId,'planning.ai','test',new Date().toISOString()).run();
   assert.equal((await call(path,owner,input)).status,429);assert.equal(calls,1);
   assert.deepEqual((await load(orgId)).workspace,before);
  } finally {globalThis.fetch=fetchBefore;}
@@ -116,7 +172,7 @@ test('초대: 지정 이메일만 수락, 한 번 사용, 취소·만료 초대�
  assert.equal((await call('invitations/accept',member,{token})).status,410);
  const ownerId=(await load(orgId)).access.memberId;
  assert.equal((await call(`organizations/${orgId}/admin/members/${ownerId}`,owner,{role:'member',active:false})).status,403);
- const expired=await invite(orgId);sqlite.exec("UPDATE invitations SET expires_at='2000-01-01' WHERE status='pending'");
+ const expired=await invite(orgId);await env.DB.prepare("UPDATE invitations SET expires_at='2000-01-01' WHERE status='pending'").run();
  assert.equal((await call('invitations/accept',member,{token:expired})).status,410);
  const canceled=await invite(orgId);const a=await call(`organizations/${orgId}/admin`);const pending=a.invitations.find((i:any)=>i.status==='pending'&&i.expires_at>'2026-01-01');
  assert.equal((await call(`organizations/${orgId}/admin/invitations/${pending.id}`,owner,{},'DELETE')).status,200);

@@ -5,9 +5,10 @@ import { createEmptyWorkspace } from '../src/domain/workspace';
 import { authorizeCommand, commandProject, HttpError, isManager, projectAccess, requireManager, visibleWorkspace, type Actor, type Role } from './policy';
 import { envelopeSchema } from './commands-schema';
 import { aiReady, planningRequestSchema, suggestPlan, type AIEnv } from './planning-ai';
+import type { Database, Statement, ObjectStore } from './database';
 
 export type Identity={userId:string;email:string;displayName:string};
-export type Services={DB:D1Database;BUCKET?:R2Bucket;PLATFORM_ADMIN_USER_IDS?:string} & AIEnv;
+export type Services={DB:Database;BUCKET?:ObjectStore;PLATFORM_ADMIN_USER_IDS?:string} & AIEnv;
 type Org={id:string;name:string;status:string;revision:number;body:string;member_id:string;role:Role};
 const timestamp=()=>new Date().toISOString();
 const uuid=()=>crypto.randomUUID();
@@ -49,10 +50,10 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
  async function result(orgId:string){const ctx=await org(orgId);return {workspace:visibleWorkspace(ctx.state,ctx.actor),access:ctx.actor};}
  function audit(orgId:string,action:string,id=uuid(),requestHash=''){return db.prepare('INSERT INTO operations (id,org_id,actor_id,action,request_hash,created_at) VALUES (?,?,?,?,?,?)').bind(id,orgId,user.userId,action,requestHash,timestamp());}
  // ACL writes bump the same organization revision as project writes, preventing stale authorization snapshots.
- async function adminWrite(ctx:Awaited<ReturnType<typeof org>>,statements:D1PreparedStatement[],action:string){
+ async function adminWrite(ctx:Awaited<ReturnType<typeof org>>,statements:Statement[],action:string){
   const nonce=uuid();
   const gate=db.prepare('INSERT INTO operations (id,org_id,actor_id,action,request_hash,created_at) SELECT ?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM organizations WHERE id=? AND revision=? AND status=\'active\')').bind(nonce,ctx.row.id,user.userId,action,'',timestamp(),ctx.row.id,ctx.row.revision);
-  // Statements are also guarded by the unchanged revision; D1 batch does not interleave writes.
+  // Every statement uses the unchanged revision; the database batch is serializable.
   const results=await db.batch([gate,...statements.map(s=>s),db.prepare('UPDATE organizations SET revision=revision+1 WHERE id=? AND EXISTS(SELECT 1 FROM operations WHERE id=?)').bind(ctx.row.id,nonce)]);
   if(!results[0].meta.changes)throw new HttpError(409,'다른 사람이 변경했어요. 새로고침 후 다시 시도해 주세요.');
  }
@@ -139,7 +140,47 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
   return json(await result(orgId));
  }
  if(parts[2]==='files'){
+  if(method==='POST'&&(parts[3]==='prepare'||parts[3]==='complete')){
+   if(actor.role==='viewer')throw new HttpError(403,'읽기 전용 권한이에요.');
+   const store=env.BUCKET;
+   if(!store?.signUpload||!store.head)throw new HttpError(503,'직접 업로드 저장소 설정이 필요해요.');
+   const input=parts[3]==='prepare'
+    ?z.object({projectId:z.string().min(1),name:z.string().min(1).max(255),size:z.number().int().min(1).max(25*1024*1024)}).strict().parse(await body(req))
+    :z.object({id:z.string().uuid()}).strict().parse(await body(req));
+   if('projectId' in input){
+    projectAccess(actor,input.projectId);const p=state.projects.find(p=>p.id===input.projectId);
+    if(!p||['completed','archived'].includes(p.status??''))throw new HttpError(400,'진행 중인 프로젝트에 자료를 올려 주세요.');
+    const id=uuid(),now=timestamp(),expiresAt=new Date(Date.now()+2*3600000).toISOString();
+    const name=input.name.replace(/[\x00-\x1f/\\]/g,'_');
+    const reserved=await db.prepare("INSERT INTO file_uploads (id,org_id,project_id,uploader_id,name,size,created_at,expires_at) SELECT ?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM organizations WHERE id=? AND revision=? AND status='active') AND (SELECT COALESCE(SUM(size),0) FROM files WHERE org_id=?)+(SELECT COUNT(*)*26214400 FROM file_uploads WHERE org_id=?) + 26214400 <= ?").bind(id,orgId,input.projectId,user.userId,name,input.size,now,expiresAt,orgId,row.revision,orgId,orgId,500*1024*1024).run();
+    if(!reserved.meta.changes)throw new HttpError(409,'조직 저장 한도나 변경된 권한을 확인한 뒤 다시 시도해 주세요.');
+    try { return json({id,uploadUrl:await store.signUpload(`${orgId}/${id}`),expiresAt},201); }
+    catch(e){await db.prepare('DELETE FROM file_uploads WHERE id=? AND org_id=?').bind(id,orgId).run();throw e;}
+   }
+   const existing=await db.prepare('SELECT * FROM files WHERE id=? AND org_id=? AND uploader_id=?').bind(input.id,orgId,user.userId).first<any>();
+   if(existing){projectAccess(actor,existing.project_id);return json({id:existing.id,blobKey:existing.id,name:existing.name,size:existing.size,createdAt:existing.created_at});}
+   const upload=await db.prepare('SELECT * FROM file_uploads WHERE id=? AND org_id=? AND uploader_id=?').bind(input.id,orgId,user.userId).first<any>();
+   if(!upload||upload.expires_at<=timestamp())throw new HttpError(410,'업로드 요청이 만료됐어요. 파일을 다시 선택해 주세요.');
+   projectAccess(actor,upload.project_id);
+   const target=state.projects.find(p=>p.id===upload.project_id);
+   if(!target||['completed','archived'].includes(target.status??''))throw new HttpError(400,'프로젝트가 완료되었어요. 다시 연 뒤 올려 주세요.');
+   const key=`${orgId}/${upload.id}`,stored=await store.head(key);
+   if(!stored)throw new HttpError(409,'파일 업로드가 아직 끝나지 않았어요. 다시 시도해 주세요.');
+   if(stored.size!==upload.size){await store.delete(key);await db.prepare('DELETE FROM file_uploads WHERE id=? AND org_id=?').bind(upload.id,orgId).run();throw new HttpError(400,'원본 크기가 일치하지 않아요. 파일을 다시 선택해 주세요.');}
+   // Recheck role/assignment after the external Storage request; revision guards close the race.
+   const fresh=await org(orgId);projectAccess(fresh.actor,upload.project_id);
+   if(fresh.actor.role==='viewer')throw new HttpError(403,'업로드 권한이 변경됐어요.');
+   const freshProject=fresh.state.projects.find(p=>p.id===upload.project_id);
+   if(!freshProject||['completed','archived'].includes(freshProject.status??''))throw new HttpError(400,'프로젝트가 완료되었어요.');
+   const saved=await db.batch([
+    db.prepare("INSERT INTO files (id,org_id,project_id,uploader_id,name,size,created_at) SELECT id,org_id,project_id,uploader_id,name,size,created_at FROM file_uploads WHERE id=? AND org_id=? AND uploader_id=? AND expires_at>? AND EXISTS(SELECT 1 FROM organizations WHERE id=? AND revision=? AND status='active') ON CONFLICT(id) DO NOTHING").bind(upload.id,orgId,user.userId,timestamp(),orgId,fresh.row.revision),
+    db.prepare('DELETE FROM file_uploads WHERE id=? AND org_id=? AND changes()>0').bind(upload.id,orgId),
+   ]);
+   if(!saved[0].meta.changes)throw new HttpError(409,'조직이나 업로드 상태가 변경됐어요. 다시 시도해 주세요.');
+   return json({id:upload.id,blobKey:upload.id,name:upload.name,size:upload.size,createdAt:upload.created_at},201);
+  }
   if(method==='POST'){
+   if(env.BUCKET?.signUpload)throw new HttpError(400,'직접 업로드 방식으로 파일을 올려 주세요.');
    const pid=url.searchParams.get('project')??'';projectAccess(actor,pid);if(actor.role==='viewer')throw new HttpError(403,'읽기 전용 권한이에요.');
    const targetProject=state.projects.find(p=>p.id===pid);if(!targetProject)throw new HttpError(404,'프로젝트가 없어요.');if(['completed','archived'].includes(targetProject.status??''))throw new HttpError(400,'완료·보관한 프로젝트는 다시 연 뒤 자료를 올려 주세요.');
    if(!env.BUCKET)throw new HttpError(503,'파일 저장소를 준비 중이에요.');
@@ -157,6 +198,10 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
   if(method==='GET'&&parts[3]){
    const f=await db.prepare('SELECT * FROM files WHERE id=? AND org_id=?').bind(parts[3],orgId).first<any>();if(!f)throw new HttpError(404,'파일이 없어요.');projectAccess(actor,f.project_id);
    const linked=state.documents.some(d=>d.projectId===f.project_id&&d.versions.some(v=>v.blobKey===f.id));if(!linked&&f.uploader_id!==user.userId)throw new HttpError(403,'아직 등록되지 않은 원본이에요.');
+   if(env.BUCKET?.signDownload){
+    const signedUrl=await env.BUCKET.signDownload(`${orgId}/${f.id}`,f.name);
+    return parts[4]==='url'?json({url:signedUrl}):new Response(null,{status:303,headers:{Location:signedUrl,'Cache-Control':'private, no-store','Referrer-Policy':'no-referrer'}});
+   }
    const object=await env.BUCKET?.get(`${orgId}/${f.id}`);if(!object)throw new HttpError(404,'원본을 찾지 못했어요.');
    return new Response(object.body,{headers:{'Content-Type':'application/octet-stream','Content-Disposition':`attachment; filename*=UTF-8''${encodeURIComponent(f.name)}`,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; sandbox"}});
   }
@@ -164,7 +209,7 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
  if(parts[2]==='admin'){
   requireManager(actor);
   if(method==='GET')return json({members:(await db.prepare('SELECT m.id,m.role,m.active,u.name,u.email FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.org_id=?').bind(orgId).all()).results,projects:state.projects.map(p=>({id:p.id,name:p.name})),assignments:(await db.prepare('SELECT project_id,member_id FROM project_members WHERE org_id=?').bind(orgId).all()).results,invitations:(await db.prepare('SELECT id,email,role,status,expires_at FROM invitations WHERE org_id=? ORDER BY created_at DESC LIMIT 100').bind(orgId).all()).results,audit:(await db.prepare('SELECT id,actor_id,action,created_at FROM operations WHERE org_id=? ORDER BY created_at DESC LIMIT 100').bind(orgId).all()).results});
-  // Each ACL statement uses the revision guard; D1 batch executes these with no interleaving.
+  // Each ACL statement uses the revision guard inside one serializable transaction.
   const guard='EXISTS(SELECT 1 FROM organizations WHERE id=? AND revision=? AND status=\'active\')';
   if(parts[3]==='invitations'&&method==='POST'){
    const input=inviteSchema.parse(await body(req));if(input.role==='admin'&&actor.role!=='owner')throw new HttpError(403,'관리자 초대는 조직 대표만 할 수 있어요.');

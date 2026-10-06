@@ -91,3 +91,16 @@
 - 모바일 390×844 임시 뷰포트에서 가로 넘침 없음(clientWidth=scrollWidth=344). 금액과 원 단위가 갈라지지 않도록 보완하고 확인 후 뷰포트를 복원했다. 상세 화면 헤더/닫기 버튼을 스크롤 중에도 유지했다. 브라우저 콘솔 오류 없음.
 - 화면 캡처: `screenshots/finance-partial-payment.png`, `screenshots/finance-mobile.png`. Word 렌더링·OS 파일 저장·실제 송금·회계 규정/보조금 적합성·실시간 알림·대량 운영 검증까지 완료한 것이 아니다.
 - Google/OpenAI 운영 연결 상태는 이전 단계와 동일하다. 기능과 다음 범위는 `docs/11-budget-and-approvals.md`를 따른다.
+
+
+## 2026-10-06 · v0.6 Vercel / Supabase 구조 전환
+
+- Vinext 유지, Nitro Vercel preset, Node 22, Build Output API v3. vercel.json에서 Other 프리셋·빌드 명령·출력 디렉터리 고정.
+- Cloudflare 실행 바인딩을 기본 서버 경로에서 제거. Supabase Google 세션, PostgreSQL 풀, 비공개 Storage 서명 업로드/다운로드 연결.
+- 로컬 PostgreSQL WASM 엔진(PGlite)에 실제 마이그레이션 적용. 기존 서버 테스트 10개와 업로드·롤백·RLS/DDL·동시 저장 추가 검증. 전체 74/74 통과.
+- 작은 크기를 신고한 업로드도 건당 최대 용량을 예약하도록 보강 후 관련 3개 테스트 재통과. 타입 검사 통과.
+- npm run build:vercel 통과. 함수 산출물 약 79MiB, Node 22, 60초 제한. Windows 첫 의존성 복사 EBUSY 후 재빌드 및 최종 빌드 정상.
+- npm run verify:vercel 통과: 생성된 함수의 데모 HTML 200, /api/session 200, Google 미설정 경로 303. ChatGPT 사용자 헤더를 넣어도 익명. 연결 정적 파일 10개 존재 확인, 산출물 2,206개 검사, 로컬 비밀값 포함 없음.
+- 로컬 AI 키는 .env.local에 유지하고 Git에서 제외. Vercel/Supabase 원격 환경변수는 수정하지 않음.
+- 미검증/미실행: 실제 Vercel 호스팅 배포, 외부 Supabase DB 적용·Storage 왕복·두 Google 계정 로그인. 기존 Sites/D1/R2 데이터 이관과 랜딩 링크 변경도 새 주소 확정 후 별도 진행.
+- npm 설치 시 기존 의존성을 포함한 audit 경고 24개(낮음 1, 중간 7, 높음 16)가 보고됨. 이번 전환에서 무관한 패키지 강제 일괄 갱신은 하지 않음; 운영 출시 전 별도 취약점 검토 필요.

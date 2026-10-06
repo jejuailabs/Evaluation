@@ -1,14 +1,16 @@
-import { env } from 'cloudflare:workers';
-import { getChatGPTUser } from '../../chatgpt-auth';
+import { getRuntime } from '../../../server/runtime';
 import { handleApi, type Services } from '../../../server/api';
 import { authStatus, createAuthContext, type AuthEnv } from '../../../server/auth';
 export const dynamic='force-dynamic';
 async function handle(request:Request){
- if(!env.DB)return Response.json({error:'서버 저장소를 준비 중이에요.'},{status:503,headers:{'Cache-Control':'no-store'}});
- const config=env as Services & AuthEnv;
+ const config=getRuntime();
  const auth=createAuthContext(request,config);
- const identity=config.AUTH_PROVIDER==='supabase'?await auth.identity():await getChatGPTUser();
- const response=await handleApi(request,config,identity);
+ const identity=await auth.identity();
+ if(!config.DB){
+  const session=new URL(request.url).pathname==='/api/session'&&request.method==='GET';
+  return auth.finish(Response.json(session?{user:null,organizations:[],platformAdmin:false,auth:authStatus(config),storageReady:false}:{error:'데이터베이스 연결 설정이 필요해요.'},{status:session?200:503,headers:{'Cache-Control':'no-store'}}));
+ }
+ const response=await handleApi(request,config as Services,identity);
  if(new URL(request.url).pathname==='/api/session'&&response.ok){
   const data=await response.json() as Record<string,unknown>;
   return auth.finish(Response.json({...data,auth:authStatus(config)}));

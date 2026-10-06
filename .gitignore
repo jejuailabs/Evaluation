@@ -11,3 +11,7 @@ qa/screenshots/
 .vinext/
 .dev.vars
 .next/
+.output/
+.vercel/
+supabase/.temp/
+supabase/.branches/
