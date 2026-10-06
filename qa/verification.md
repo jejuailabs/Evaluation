@@ -171,3 +171,12 @@
 - 새 `/auth/callback`을 Supabase Redirect URLs에 추가하고 재조회로 확인. 기존 허용 주소·공유 Site URL은 보존.
 - Git 제외 `.env.vercel.local`의 `APP_URL`을 새 주소로 수정. 등록용 필수 값 누락 없음 확인. 로컬 개발 `.env.local`의 `APP_URL`은 로컬 주소 유지.
 - 현재 Vercel CLI 계정에서는 해당 Evaluation 프로젝트 접근이 되지 않아 원격 환경변수 등록은 미수행. 로컬 파일 준비·Supabase 설정 적용·Vercel 원격 설정을 구분.
+
+## 2026-10-06 · 올바른 Vercel 계정 연결 및 운영 인증 403 해소
+
+- 사용자가 장치 인증을 승인해 프로젝트 전용 CLI 설정으로 `jejuai/evaluation` 접근 성공. 기존 다른 계정의 전역 인증은 유지. CLI 인증 파일과 운영 환경변수 복사본은 Git 제외 경로에서만 사용.
+- Production의 APP_URL·Supabase·DB·Storage·AI 설정이 준비된 값과 일치함을 확인. 같은 커밋 `fa083ce`를 최신 환경설정으로 재배포하여 Google·이메일 요청의 서비스 주소 차단을 해소. 소스의 출처 검증을 삭제하거나 약화하지 않음.
+- 재배포 ID `dpl_4x7991bqHof8CdgWbZVdLZqVZbUo` READY, `evaluation-five-xi.vercel.app`이 새 배포를 가리킴을 확인.
+- 운영 `/auth/google`: 변경 전 403 → 재배포 후 303, Supabase authorize 및 정확한 운영 `/auth/callback` 지정.
+- 새 브라우저에서 실제 운영 Google 버튼 클릭 → Google 로그인 페이지 확인, 페이지 오류 0, HttpOnly PKCE 쿠키 확인. 계정 인증·동의·최종 세션 발급은 미수행.
+- 운영 `/auth/email`: 올바른 출처의 잘못된 이메일 입력은 403 대신 400으로 주소 검사까지 도달. 외부 출처는 여전히 403. 실제 이메일은 보내지 않았으므로 메일 수신 성공 검증으로 해석하지 않음.

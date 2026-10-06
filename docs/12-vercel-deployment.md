@@ -83,7 +83,7 @@ Supabase Auth → Providers에서 Google OAuth를 설정합니다. Google Cloud�
 
 2026-10-06에 위 Google 설정을 적용했습니다. 로컬 `.env.local`의 `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`은 설정 작업용이며 앱 런타임이나 Vercel에 추가할 필요가 없습니다. Supabase 제공자 설정이 사용하며 Git에는 포함하지 않습니다. 공개 Auth 설정과 로컬 `/api/session`에서 Email·Google 모두 활성으로 조회됐고, 새 브라우저의 Google 버튼 클릭과 HttpOnly PKCE 쿠키를 확인했습니다. Google의 `redirect_uri_mismatch`·`invalid_client` 오류는 없었습니다. 계정 입력·동의와 최종 세션 발급은 이번 확인에 포함하지 않았습니다.
 
-사용자가 확정한 운영 주소 `https://evaluation-five-xi.vercel.app`의 첫 화면과 `/api/session`은 익명 요청으로 200을 반환합니다. 이 주소에는 앞서 다른 주소에서 확인했던 Vercel 로그인 보호 문제가 없습니다. 현재 `/api/session`은 `auth.status: unconfigured`, `workspaceReady: false`를 반환합니다. 환경변수를 등록하고 재배포한 뒤 제공자 활성 상태·DB 연결·Google 인증 후 복귀를 재검증해야 합니다. 이 도메인의 Supabase 복귀 주소 등록은 완료했으며, 배포 서버의 환경변수 등록은 현재 CLI 계정이 해당 프로젝트에 접근하지 못해 아직 수행하지 않았습니다.
+사용자가 확정한 운영 주소 `https://evaluation-five-xi.vercel.app`의 첫 화면과 `/api/session`은 익명 요청으로 200을 반환합니다. 이 주소에는 앞서 다른 주소에서 확인했던 Vercel 로그인 보호 문제가 없습니다. 2026-10-06 사용자가 올바른 계정의 CLI 인증을 승인한 뒤 `jejuai/evaluation` Production 환경변수가 준비한 값과 일치함을 확인하고 재배포했습니다. 현재 `/api/session`은 Email·Google 활성과 `workspaceReady: true`를 반환합니다. 실제 운영 버튼 → Supabase → Google 로그인 화면 이동 및 안전한 쿠키를 확인했습니다. 이메일의 정상 출처·잘못된 주소 요청은 400, 외부 출처 요청은 403으로 구분됩니다. 실제 이메일 발송과 사용자 인증 후 복귀 검증은 별도로 남아 있습니다.
 
 현재 MCP에는 Auth 설정 수정·Secret Key 조회 도구가 없어 사용자가 등록한 PAT로 공식 Management API를 사용했습니다. 인증 설정 읽기·복귀 URL 추가·기존 서버 키 조회를 완료했습니다. PAT는 프로젝트 범위를 `projecthub`로 제한하고 Auth Config와 Project Settings는 Read-write, API Keys와 API Key Secrets는 Read로 설정합니다. Auth 설정 변경 API는 Site URL 변경 여부와 무관하게 Auth Config와 Project Settings 쓰기 권한을 모두 요구합니다. 관리 토큰은 로컬 `SUPABASE_ACCESS_TOKEN`으로만 사용하고 Vercel·브라우저·Git에 전달하지 않습니다.
 
