@@ -103,7 +103,13 @@ export async function notifications(ctx:Context,method:string,url:URL,input?:unk
 }
 export function workflowNotifications(ctx:Context,command:Command,next:Workspace,eventId:string,writeToken:string):Statement[]{
  let t:DiscussionTarget|undefined,title='',recipients:Recipient={};const actor=ctx.actor.memberId;
- if(command.type==='task.add'||command.type==='task.update'){
+ if(command.type==='report.workflow'&&command.kind==='project'){
+  const r=next.reports.find(r=>r.id===command.reportId)!;
+  if(['request','approve','return','revoke','submit'].includes(command.operation.action)){
+   t={projectId:r.projectId,type:'project',id:r.id};title=r.title+' · '+({'request':'보고서 검토 요청','approve':'보고서 내부 승인','return':'보고서 보완 요청','revoke':'보고서 승인 철회','submit':'보고서 제출 기록'} as Record<string,string>)[command.operation.action];
+   recipients=command.operation.action==='request'?{managers:true}:{members:[r.createdById??next.projects.find(p=>p.id===r.projectId)!.ownerId]};
+  }
+ }else if(command.type==='task.add'||command.type==='task.update'){
   const task=command.task,old=ctx.state.tasks.find(x=>x.id===task.id);
   if(!old||old.ownerId!==task.ownerId||old.due!==task.due){t={projectId:task.projectId,type:'task',id:task.id};title=`${task.title} · 담당 업무${old?'가 변경됐어요.':'가 배정됐어요.'}`;recipients={members:[task.ownerId]};}
  }else if(command.type==='task.series.create'||command.type==='task.series.update'||command.type==='task.series.stop'){

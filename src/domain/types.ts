@@ -1,5 +1,6 @@
 import type { OutcomeSource } from './outcome-analysis';
 import type { MeetingRecord, TranscriptionAttempt } from './meeting';
+import type { ReportMetadata, ReportKind, ReportAction } from './report-workflow';
 export type ID = string;
 export type TaskStatus = 'todo' | 'doing' | 'done';
 export type ExpenseStatus = 'planned' | 'submitted' | 'returned' | 'confirmed' | 'paid' | 'cancelled';
@@ -38,7 +39,7 @@ export interface Measurement extends Scoped {
 }
 export interface BudgetSummary { allocated: number; committed: number; spent: number; paid: number; available: number; unpaid: number }
 export interface MetricSummary { outcomeRecords?: Pick<Measurement,'asOf'|'periodStart'|'value'|'denominator'|'assessment'|'note'|'evidence'|'analysisSource'>[]; id: ID; name: string; unit: string; target: number | null; forecast: number | null; actual: number | null; rate: number | null; asOf?: string; source: string; sourceUrl?: string; definition: string; definitionVersion: number; evidenceName?: string; evidenceVersionId?: ID; note?: string; evidenceVersionIds?:ID[]; aggregation?:Indicator['aggregation']; assessment?:Measurement['assessment']; records?:number; direction?:Indicator['direction']; rubric?:string; warning?:string; planningSource?:PlanningSource }
-export interface Report extends Scoped {
+export interface Report extends Scoped, ReportMetadata {
   title: string; projectName: string; purpose: string; periodStart: string; asOf: string;
   createdAt: string; budget: BudgetSummary; metrics: MetricSummary[];
   completedTasks: number; totalTasks: number; pendingMeasurements: number;
@@ -51,7 +52,7 @@ export interface AnnualPlan {budgetPolicy?:'yearly';id:ID;orgId:ID;year:number;t
 export interface AnnualGoal {id:ID;orgId:ID;planId:ID;name:string;unit:string;target:number|null;definition:string;direction:'higher'|'lower';aggregation:'sum'|'separate';linkIds:ID[];deduplication:string;version:number;changes:{at:string;reason:string;previous:Omit<AnnualGoal,'changes'>}[]}
 export interface Activity extends Scoped {title:string;body:string;date:string;ownerId:ID;taskId?:ID;indicatorIds:ID[];evidence:EvidenceRef[];documentId:ID;createdAt:string}
 export interface GoalSummary {id:ID;name:string;unit:string;target:number|null;actual:number|null;forecast:number|null;rate:number|null;definition:string;warning:string;metrics:(MetricSummary & {projectName:string})[]}
-export interface AnnualReport {budgetBasis?:'yearly';unallocated?:number;id:ID;orgId:ID;planId:ID;title:string;year:number;start:string;end:string;createdAt:string;planVersion:number;purpose:string;note:string;goals:GoalSummary[];budget:number;allocated:number;spent:number;paid:number;pending:number;projects:{id:ID;name:string;owner:string;status:string;allocated:number;spent:number;paid:number;done:number;tasks:number}[];quarters:{label:string;spent:number;goals:{name:string;actual:number|null;unit:string}[]}[];finance?:FinanceSnapshot}
+export interface AnnualReport extends ReportMetadata {budgetBasis?:'yearly';unallocated?:number;id:ID;orgId:ID;planId:ID;title:string;year:number;start:string;end:string;createdAt:string;planVersion:number;purpose:string;note:string;goals:GoalSummary[];budget:number;allocated:number;spent:number;paid:number;pending:number;projects:{id:ID;name:string;owner:string;status:string;allocated:number;spent:number;paid:number;done:number;tasks:number}[];quarters:{label:string;spent:number;goals:{name:string;actual:number|null;unit:string}[]}[];finance?:FinanceSnapshot}
 export interface AuditEvent { id: ID; projectId: ID; action: string; at: string }
 export interface Workspace {
   schemaVersion: 1; revision: number;
@@ -63,6 +64,7 @@ export interface Workspace {
   taskSeries?:TaskSeries[]; intakeItems?:IntakeItem[];
 }
 export type Command =
+  | {type:'report.workflow';kind:ReportKind;reportId:ID;expectedVersion:number;operation:ReportAction}
   | {type:'intake.meeting.save';id:ID;expectedRevision:number;text:string;notes:string;reviewed:boolean}
   // Internal server commands; deliberately absent from the public command schema.
   | {type:'intake.transcription.start';id:ID;attemptId:ID}

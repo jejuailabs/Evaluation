@@ -1,3 +1,4 @@
+import { reportWorkflowText } from './report-workflow-data';
 import type { AnnualReport, MetricSummary, Report } from '../domain/types';
 import { assessmentLabels } from '../domain/standards';
 import {expenseLabels} from '../domain/selectors';
@@ -23,7 +24,7 @@ export function reportSheets(r: ExportReport): ExportSheet[] {
     ['항목', '내용'], ['제목', exportTitle(r)], ['기간', exportPeriod(r)], ['사업 목적', r.purpose],
     ['생성 시각', r.createdAt], ['보고서 번호', r.id], ['확인 전 실적 제외 건수', isAnnualReport(r) ? r.pending : r.pendingMeasurements],
     ['집계 안내', '확인한 실적만 집계합니다. 누적·정성은 기준일까지의 최신 상태이며 기간 합계·비율은 선택 기간의 확인값입니다. 비용·업무는 보고서 생성 당시 상태입니다.'],
-    ['해석과 다음 계획', r.note], ['문서 상태', '저장된 보고 시점의 초안입니다. 공식 승인·제출본이 아니며 원본 파일은 포함하지 않습니다.'],
+    ['해석과 다음 계획', r.note], ['문서 상태', reportWorkflowText(r)[0]],
   ] }];
   if (isAnnualReport(r)) sheets.push({ name: '연간 목표', rows: [['목표', '정의', '단위', '목표값', '예상값', '확인 실적', '달성률 %', '집계 주의'], ...r.goals.map(g => [g.name, g.definition, g.unit, g.target, g.forecast, g.actual, g.rate, g.warning])] });
   sheets.push({ name: '프로젝트 지표', rows: [['프로젝트', '지표', '단위', '목표', '예상', '확인 실적', '달성률 %', '변화 단계', '판단 기준', '기준일', '집계 방식', '정의', '정의 버전', '참고 기준', '해석', '주의'], ...metrics.map(m => [m.projectName ?? (!isAnnualReport(r) ? r.projectName : ''), m.name, m.unit, m.target, m.forecast, m.actual, m.rate, m.assessment ? assessmentLabels[m.assessment] : '', m.rubric ?? '', m.asOf ?? '', m.aggregation ?? '', m.definition, m.definitionVersion, m.source, m.note ?? '', m.warning ?? ''])] });
@@ -48,5 +49,6 @@ export function reportSheets(r: ExportReport): ExportSheet[] {
     sheets.push({name:'집행 처리 이력',rows:[['프로젝트','요청 내용','시각','처리','담당자 번호','사유','이전 내용','이전 금액 원','이전 집행일'],...r.finance.expenses.flatMap(e=>(e.history??[]).map(h=>[e.projectName,e.title,h.at,h.action,h.actorId,h.reason,h.previous?.title??'',h.previous?.amount??null,h.previous?.date??'']))]});
   }
   if(metrics.some(m=>m.outcomeRecords?.length))sheets.push({name:'AI 실적 검토',rows:[['지표','검토 이력'],...metrics.flatMap(m=>outcomeEvidenceText(m).map(line=>[m.name,line]))]});
+  sheets.push({name:'승인·제출 이력',rows:[['처리 기록'],...reportWorkflowText(r).map(line=>[line])]});
   return sheets;
 }

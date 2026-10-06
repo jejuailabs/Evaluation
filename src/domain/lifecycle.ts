@@ -7,7 +7,7 @@ function text(v:string,label:string){if(!v.trim())throw new Error(`${label}을 �
 function positive(v:number|null){if(v!==null&&(!Number.isFinite(v)||v<0))throw new Error('0 이상의 유효한 숫자를 입력해 주세요.');}
 function date(v:string){if(!/^\d{4}-\d{2}-\d{2}$/.test(v)||!Number.isFinite(Date.parse(v))||new Date(v).toISOString().slice(0,10)!==v)throw new Error('날짜를 확인해 주세요.');}
 function plan(s:Workspace,id:string){const p=s.annualPlans?.find(p=>p.id===id&&p.orgId===s.organization.id);if(!p)throw new Error('연간 계획을 찾지 못했어요.');return p;}
-export function applyLifecycle(s:Workspace,c:Command,now:string):{projectId:string;action:string}|null {
+export function applyLifecycle(s:Workspace,c:Command,now:string,actorId=s.members[0]?.id??'demo'):{projectId:string;action:string}|null {
   s.annualPlans??=[];s.annualGoals??=[];s.annualReports??=[];s.activities??=[];
   let projectId='',action='';
   switch(c.type){
@@ -44,7 +44,7 @@ export function applyLifecycle(s:Workspace,c:Command,now:string):{projectId:stri
     }
     case 'annual.report.create': {
       const p=plan(s,c.planId);date(c.start);date(c.end);if(c.start<`${p.year}-01-01`||c.end>`${p.year}-12-31`||c.end<c.start||c.end>today())throw new Error('올해 안에서 오늘까지의 보고 기간을 선택해 주세요.');
-      s.annualReports.unshift(annualSnapshot(s,p,c.start,c.end,c.note,now));action='기간 점검 보고서 저장';break;
+      s.annualReports.unshift({...annualSnapshot(s,p,c.start,c.end,c.note,now),createdById:actorId});action='기간 점검 보고서 저장';break;
     }
     case 'project.update': {
       const p=getProject(s,c.project.id);if(c.project.orgId!==s.organization.id)throw new Error('조직이 일치하지 않아요.');

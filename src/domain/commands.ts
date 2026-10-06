@@ -1,12 +1,13 @@
+import { projectSnapshot } from './report-snapshot';
+import { applyReportWorkflow } from './report-workflow';
 import {applyRecurrence} from './recurrence';
 import {applyIntake} from './intake';
 import { allocateAnnualBudget, validateAnnualBudget } from './annual-budget';
 import type { Workspace, Command, Scoped } from './types';
-import { getProject, projectRows, resolveEvidence, budgetSummary, metricSummary, uid, today, confirmedMeasurements } from './selectors';
+import { getProject, projectRows, resolveEvidence, uid, today, confirmedMeasurements } from './selectors';
 import { applyLifecycle } from './lifecycle';
 import { standards } from './standards';
 import { applyFinance } from './finance';
-import { financeSnapshot } from './finance-selectors';
 
 function requireText(value: string, label: string) { if (!value.trim()) throw new Error(`${label}을(를) 입력해 주세요.`); }
 function validDate(date: string) {
@@ -28,7 +29,7 @@ export function execute(original: Workspace, input: Command, now = new Date().to
   const row='project' in command?command.project:'task' in command?command.task:'expense' in command?command.expense:'document' in command?command.document:'indicator' in command?command.indicator:'measurement' in command?command.measurement:command.type==='activity.add'?command.activity:'series' in command?command.series:null;
   const affected='projectId' in command?command.projectId:'line' in command?command.line.projectId:row?('projectId' in row?row.projectId:row.id):'';
   if(affected&&!['project.add','project.update','report.create'].includes(command.type)&&['completed','archived'].includes(s.projects.find(p=>p.id===affected)?.status??''))throw new Error('완료·보관한 프로젝트예요. 계획·상태에서 진행 중으로 다시 열어 주세요.');
-  const extended=command.type==='annual.budget.allocate'?allocateAnnualBudget(s,command,now,actorId):applyRecurrence(s,command,now,actorId)??applyIntake(s,command,now,actorId)??applyFinance(s,command,now,actorId)??applyLifecycle(s,command,now);
+  const extended=command.type==='annual.budget.allocate'?allocateAnnualBudget(s,command,now,actorId):applyRecurrence(s,command,now,actorId)??applyIntake(s,command,now,actorId)??applyFinance(s,command,now,actorId)??applyReportWorkflow(s,command,now,actorId)??applyLifecycle(s,command,now,actorId);
   if(extended){validateAnnualBudget(original,s);s.revision++;s.events.unshift({id:uid(),...extended,at:now});return s;}
   let projectId = '';
   let action = '';
@@ -113,23 +114,8 @@ export function execute(original: Workspace, input: Command, now = new Date().to
       m.status = 'confirmed'; m.confirmedAt = now; projectId = m.projectId; action = '실적을 확인했어요'; break;
     }
     case 'report.create': {
-      const p = getProject(s, command.projectId); validDate(command.asOf);
-      if (command.asOf < p.start || command.asOf > p.end || command.asOf > today()) throw new Error('보고 기준일은 사업 시작일부터 오늘 또는 사업 종료일까지예요.');
-      const start=command.periodStart??p.start;validDate(start);if(start<p.start||start>command.asOf)throw new Error('보고 시작일을 확인해 주세요.');
-      const tasks = projectRows(s, s.tasks, p.id).filter(t => !t.cancelled&&t.due <= command.asOf&&t.due>=start);
-      const measurements = projectRows(s, s.measurements, p.id).filter(m => m.asOf <= command.asOf&&m.asOf>=start);
-      const metrics = projectRows(s, s.indicators, p.id).map(i => metricSummary(s, i, command.asOf,start));
-      const refKeys = new Set(metrics.flatMap(m => [...(m.evidenceVersionIds??(m.evidenceVersionId ? [m.evidenceVersionId] : [])),...(m.planningSource?[m.planningSource.evidence.versionId]:[])]));
-      const finance=financeSnapshot(s,[p.id],start,command.asOf);
-      finance.expenses.forEach(e => { if(e.evidence)refKeys.add(e.evidence.versionId);e.payments?.forEach(p=>{if(!p.voided&&p.date>=start&&p.date<=command.asOf)refKeys.add(p.evidence.versionId);}); });
-      const activities=(s.activities??[]).filter(a=>a.projectId===p.id&&a.date>=start&&a.date<=command.asOf);
-      activities.forEach(a=>{a.evidence.forEach(e=>refKeys.add(e.versionId));const d=s.documents.find(d=>d.id===a.documentId);d?.versions.forEach(v=>refKeys.add(v.id));});
-      const evidence = projectRows(s, s.documents, p.id).flatMap(d => d.versions.filter(v => refKeys.has(v.id)).map(v => ({ title: d.title, versionId: v.id, name: v.name })));
-      s.reports.unshift({ id: uid(), orgId: s.organization.id, projectId: p.id, title: `${p.name} · ${command.asOf} 보고`, projectName: p.name, purpose: p.purpose,
-        periodStart: start, asOf: command.asOf, createdAt: now, budget: budgetSummary(s, p.id, command.asOf,start), finance, metrics,activities:activities.map(({title,date,body})=>({title,date,body})),
-        completedTasks: tasks.filter(t => t.status === 'done').length, totalTasks: tasks.length,
-        pendingMeasurements: measurements.filter(m => m.status === 'pending').length, evidence, note: command.note });
-      projectId = p.id; action = '보고서 스냅샷을 만들었어요'; break;
+      s.reports.unshift({...projectSnapshot(s,command,now),createdById:actorId});
+      projectId = command.projectId; action = '보고서 스냅샷을 만들었어요'; break;
     }
     default: throw new Error('지원하지 않는 변경이에요.');
   }

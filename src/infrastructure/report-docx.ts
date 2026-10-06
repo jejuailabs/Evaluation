@@ -1,3 +1,4 @@
+import { reportWorkflowText } from './report-workflow-data';
 import { AlignmentType, BorderStyle, Document, Footer, HeadingLevel, PageNumber, Packer, Paragraph, Table, TableCell, TableLayoutType, TableRow, TextRun, WidthType } from 'docx';
 import { exportMetrics, exportPeriod, exportTitle, isAnnualReport, outcomeEvidenceText, type ExportReport } from './report-data';
 import { assessmentLabels } from '../domain/standards';
@@ -11,7 +12,8 @@ const table = (rows: string[][], widths: number[]) => new Table({
 });
 export async function reportDOCX(r: ExportReport): Promise<Blob> {
   const annual = isAnnualReport(r); const metrics = exportMetrics(r);
-  const children: (Paragraph | Table)[] = [p(exportTitle(r), HeadingLevel.TITLE), p(`보고 기간 ${exportPeriod(r)}`), p(r.purpose), p('확인된 성과와 사업 운영 기록을 보고 시점의 내용으로 정리한 초안입니다. 목표와 예상은 실제 성과와 구분하며, 미확인 실적은 집계에서 제외했습니다.'), p(`생성 시각 ${r.createdAt}   보고서 번호 ${r.id}`)];
+  const children: (Paragraph | Table)[] = [p(exportTitle(r), HeadingLevel.TITLE), p(`보고 기간 ${exportPeriod(r)}`), p(r.purpose), p('확인된 성과와 사업 운영 기록을 보고 시점의 내용으로 정리한 보고서입니다. 목표와 예상은 실제 성과와 구분하며, 미확인 실적은 집계에서 제외했습니다.'), p(`생성 시각 ${r.createdAt}   보고서 번호 ${r.id}`)];
+  children.push(p('승인·제출 이력',HeadingLevel.HEADING_1),...reportWorkflowText(r).map(line=>p(line)));
   if (annual) {
     children.push(p('연간 목표와 결과', HeadingLevel.HEADING_1));
     for (const g of r.goals) children.push(p(g.name, HeadingLevel.HEADING_2), p(g.definition), p(`목표 ${g.target === null ? '미설정' : number(g.target) + g.unit}   예상 ${g.forecast === null ? '미설정' : number(g.forecast) + g.unit}   확인 ${g.actual === null ? '프로젝트별 확인' : number(g.actual) + g.unit}   달성률 ${g.rate === null ? '별도 확인' : number(g.rate) + '%'}`), p(g.warning));
@@ -43,8 +45,8 @@ export async function reportDOCX(r: ExportReport): Promise<Blob> {
   if (!annual && r.activities?.length) { children.push(p('현장 기록', HeadingLevel.HEADING_1)); for (const a of r.activities) children.push(p(`${a.date} ${a.title}`, HeadingLevel.HEADING_2), p(a.body)); }
   children.push(p('해석과 다음 계획', HeadingLevel.HEADING_1), p(r.note || '아직 작성하지 않았습니다.'));
   if (!annual) { children.push(p('참조 원본', HeadingLevel.HEADING_1)); for (const e of r.evidence) children.push(p(`${e.title} / ${e.name}\n원본 버전 ${e.versionId}`)); }
-  children.push(p('집계 범위와 문서 상태', HeadingLevel.HEADING_1), p(`미확인 실적 ${annual ? r.pending : r.pendingMeasurements}건을 제외했습니다. 누적·정성 지표는 기준일까지의 최신 상태이며 분기 증가분이 아닙니다. 기간별 합계·비율은 선택 기간의 확인 기록입니다. 비용과 업무는 생성 당시 상태이며, 여러 해에 걸친 사업의 배정액은 사업 전체 금액입니다. 기준 연결은 인증이나 자동 평가 등급을 뜻하지 않습니다. 원본 파일은 포함하지 않았습니다. 정식 승인·제출본이 아닙니다.`));
-  const doc = new Document({ title: exportTitle(r), creator: '가치 돋보기', description: '확인된 조직 기록으로 만든 보고서 초안',
+  children.push(p('집계 범위와 문서 상태', HeadingLevel.HEADING_1), p(`미확인 실적 ${annual ? r.pending : r.pendingMeasurements}건을 제외했습니다. 누적·정성 지표는 기준일까지의 최신 상태이며 분기 증가분이 아닙니다. 기간별 합계·비율은 선택 기간의 확인 기록입니다. 비용과 업무는 생성 당시 상태이며, 여러 해에 걸친 사업의 배정액은 사업 전체 금액입니다. 기준 연결은 인증이나 자동 평가 등급을 뜻하지 않습니다. 원본 파일은 포함하지 않았습니다. 승인·제출 상태는 이 문서의 처리 이력을 확인하세요.`));
+  const doc = new Document({ title: exportTitle(r), creator: '가치 돋보기', description: '확인된 조직 기록과 승인·제출 이력',
     styles: { default: { document: { run: { font: '맑은 고딕', size: 24, color: '24372E' } } }, paragraphStyles: [
       { id: 'Title', name: 'Title', basedOn: 'Normal', next: 'Normal', run: { size: 44, bold: true, color: '000000' }, paragraph: { spacing: { before: 0, after: 280 } } },
       { id: 'Heading1', name: 'heading 1', basedOn: 'Normal', next: 'Normal', run: { size: 30, bold: true, color: '315747' }, paragraph: { spacing: { before: 360, after: 180 }, keepNext: true } },

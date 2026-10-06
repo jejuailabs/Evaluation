@@ -7,7 +7,15 @@ const version=z.object({id,name:z.string().min(1).max(255),size:num.int(),create
 const project=z.object({id,orgId:id,name:z.string().min(1).max(80),purpose:text,start:date,end:date,ownerId:id,budget:num.int(),category:z.string().max(80),status:z.enum(['planning','active','completed','archived']).optional(),closeNote:text.optional()}).strict();
 const task=z.object({...scope,title:z.string().min(1).max(160),due:date,ownerId:id,status:z.enum(['todo','doing','done']),priority:z.enum(['normal','high']).optional(),note:text.optional(),indicatorId:id.optional(),completedAt:z.string().max(40).optional()}).strict();
 const template={title:z.string().min(1).max(160),ownerId:id,priority:z.enum(['normal','high']).optional(),note:text.optional(),indicatorId:id.optional()};
+const reportOperation=z.discriminatedUnion('action',[
+ z.object({action:z.literal('request'),recipient:z.string().trim().min(1).max(200),reason:text.trim().min(1)}).strict(),
+ ...(['approve','return','withdraw','revoke'] as const).map(action=>z.object({action:z.literal(action),reason:text.trim().min(1)}).strict()),
+ z.object({action:z.literal('submit'),date,recipient:z.string().trim().min(1).max(200),channel:z.enum(['email','portal','visit','other']),reference:z.string().trim().min(1).max(500),format:z.enum(['docx','xlsx','html','pdf']),reason:text.trim().min(1)}).strict(),
+ z.object({action:z.literal('void'),submissionId:id,reason:text.trim().min(1)}).strict(),
+ z.object({action:z.literal('revise'),note:text,reason:text.trim().min(1)}).strict(),
+]);
 export const commandSchema=z.discriminatedUnion('type',[
+ z.object({type:z.literal('report.workflow'),kind:z.enum(['project','annual']),reportId:id,expectedVersion:num.int(),operation:reportOperation}).strict(),
  z.object({type:z.literal('intake.meeting.save'),id,expectedRevision:num.int(),text:z.string().trim().min(1).max(30000),notes:text,reviewed:z.boolean()}).strict(),
  z.object({type:z.literal('task.series.create'),series:z.object({...scope,id:z.string().min(1).max(85),...template,start:date,end:date,frequency:z.enum(['daily','weekly','monthly']),interval:num.int().min(1).max(12)}).strict()}).strict(),
  z.object({type:z.literal('task.series.update'),projectId:id,seriesId:id,fields:z.object(template).strict(),effectiveFrom:date,reason:text.min(1)}).strict(),

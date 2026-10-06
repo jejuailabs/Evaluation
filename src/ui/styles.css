@@ -103,3 +103,7 @@ dialog .dialog-head{position:sticky;top:0;z-index:4;background:var(--surface);pa
 .meeting-audio{display:block;width:100%;max-width:100%;margin:16px 0}.meeting-transcribe,.meeting-original,.recording-status{margin:20px 0}.recording-status strong{display:block;font-size:24px;margin-bottom:16px}.meeting-original pre{max-height:320px;overflow:auto}
 
 @media(max-width:640px){.document-row>.actions{margin-left:0;min-width:0;max-width:100%;width:100%;flex-wrap:wrap;justify-content:flex-start}.page-heading>.actions{max-width:100%;flex-wrap:wrap}}
+
+/* Report approval and submission history */
+.report-workflow{margin-bottom:24px;padding:24px;overflow-wrap:anywhere}.report-workflow h3{margin:0 0 12px}.report-workflow .actions{flex-wrap:wrap;margin:16px 0}.report-submissions article{border-top:1px solid var(--line,#dce1d9);padding:16px 0}.report-submissions .pill{margin-left:12px}.report-submissions p{margin:8px 0;white-space:pre-wrap}.report-submissions small{display:block}.report-history{margin:20px 0}.report-history li{margin:16px 0}.report-history p{margin:6px 0}.report-workflow>small{margin-top:16px}.report-queue{margin-bottom:24px}.report-queue a{display:block;padding:12px 0;border-top:1px solid var(--line,#dce1d9)}
+@media(max-width:600px){.report-workflow{padding:18px}.report-workflow .actions{gap:10px}.report-workflow .button{flex:1 1 auto}.report-history ol{padding-left:20px}}

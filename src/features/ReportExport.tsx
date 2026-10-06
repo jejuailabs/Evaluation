@@ -1,18 +1,20 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { download } from '../infrastructure/storage';
 import { annualReportHTML, reportHTML } from '../infrastructure/report';
 import { exportTitle, isAnnualReport, type ExportReport } from '../infrastructure/report-data';
 
 export function ReportExport({ report }: { report: ExportReport }) {
+  const generation=useRef('');
   const [format, setFormat] = useState('docx'); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
+  const key=`${report.id}:${report.workflow?.version??0}:${format}`;generation.current=key;
   const [prepared,setPrepared]=useState<{url:string;name:string}|null>(null);
   useEffect(()=>()=>{if(prepared)URL.revokeObjectURL(prepared.url);},[prepared]);
-  useEffect(()=>setPrepared(null),[format,report.id]);
-  function file(blob:Blob,name:string){setPrepared({url:URL.createObjectURL(blob),name});download(blob,name);}
+  useEffect(()=>{setPrepared(null);setError('');},[key]);
+  function file(blob:Blob,name:string){if(generation.current!==key)return;setPrepared({url:URL.createObjectURL(blob),name});download(blob,name);}
   const html = () => isAnnualReport(report) ? annualReportHTML(report) : reportHTML(report);
   async function save() {
     setBusy(true); setError('');
-    const name = exportTitle(report).replace(/[\\/:*?"<>|]/g, '_').slice(0, 90);
+    const name = exportTitle(report).replace(/[\\/:*?"<>|]/g, '_').slice(0, 70)+`_${report.id.slice(0,8)}_v${report.workflow?.version??0}`;
     try {
       if (format === 'docx') { const { reportDOCX } = await import('../infrastructure/report-docx'); file(await reportDOCX(report), `${name}.docx`); }
       else if (format === 'xlsx') { const { reportXLSX } = await import('../infrastructure/report-xlsx'); file(new Blob([new Uint8Array(reportXLSX(report))], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `${name}.xlsx`); }
