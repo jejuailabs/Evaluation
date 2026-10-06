@@ -474,3 +474,63 @@ test('협업: 댓글 페이지 분할·연속 작성 제한·보관 후 읽기 �
  const grants=await fixture.pg.query("SELECT has_table_privilege('anon','value_lens.project_comments','SELECT') AS comments,has_table_privilege('authenticated','value_lens.notifications','SELECT') AS notifications");
  assert.deepEqual(grants.rows,[{comments:false,notifications:false}]);
 });
+
+
+test('미분류 자료함: 프로젝트 없는 업로드·개인 격리·관리자 분류·원본 권한 이전·동시 분류 원자성',async()=>{
+ const orgId=await create(),mid=await join(orgId),root=`organizations/${orgId}`;
+ const second:Identity={userId:'intake-peer',email:'peer@test.example',displayName:'다른 구성원'};
+ const invitation=await call(`${root}/admin/invitations`,owner,{email:second.email,role:'member'});
+ await call('invitations/accept',second,{token:invitation.url.split('/invite/')[1]});
+ const stored=new Map<string,number>();env.BUCKET={put:async()=>{},get:async()=>null,delete:async()=>{},signUpload:async key=>`https://storage.test/${key}`,head:async key=>stored.has(key)?{size:stored.get(key)!}:null,signDownload:async key=>`https://storage.test/download/${key}`};
+ const prep=await call(`${root}/files/prepare`,member,{projectId:null,name:'회의 녹음.mp3',size:20});assert.equal(prep.status,201);
+ stored.set(`${orgId}/${prep.id}`,20);
+ assert.equal((await call(`${root}/files/complete`,second,{id:prep.id})).status,410);
+ const uploaded=await call(`${root}/files/complete`,member,{id:prep.id});assert.equal(uploaded.status,201);
+ const {status:_,...version}=uploaded,id=crypto.randomUUID();
+ const add:Command={type:'intake.add',id,title:'현장 녹음',note:'분류 전',source:{kind:'file',version:{...version,name:'forged.txt',size:1}}};
+ assert.equal((await cmd(orgId,add,second)).status,400);
+ assert.equal((await cmd(orgId,add,member)).status,200);
+ const saved=(await load(orgId)).workspace.intakeItems[0];assert.equal(saved.version.name,'회의 녹음.mp3');assert.equal(saved.version.size,20);assert.equal(saved.createdById,mid);
+ assert.equal((await cmd(orgId,{...add,id:crypto.randomUUID()},member)).status,400);
+ assert.equal((await load(orgId,member)).workspace.intakeItems.length,1);assert.equal((await load(orgId,second)).workspace.intakeItems.length,0);
+ assert.equal((await call(`${root}/files/${version.id}/url`,second)).status,403);assert.equal((await call(`${root}/files/${version.id}/url`)).status,200);
+ assert.equal((await call(`${root}/files/${version.id}/url`,outsider)).status,403);
+ let revision=(await load(orgId)).workspace.revision;
+ assert.equal((await call(`${root}/workspace/page?collection=intakeItems&revision=${revision}`,member)).items.length,1);
+ assert.equal((await call(`${root}/workspace/page?collection=intakeItems&revision=${revision}`,second)).items.length,0);
+ assert.equal((await cmd(orgId,{type:'intake.archive',id,archived:true,reason:'보관'},second)).status,403);
+ const pid=await project(orgId),other=await project(orgId);
+ assert.equal((await cmd(orgId,{type:'intake.assign',id,projectId:pid},member)).status,403);
+ revision=(await load(orgId)).workspace.revision;
+ const results=await Promise.all([pid,other].map(projectId=>cmd(orgId,{type:'intake.assign',id,projectId},owner,revision)));
+ assert.deepEqual(results.map(x=>x.status).sort(),[200,409]);
+ const state=(await load(orgId)).workspace,item=state.intakeItems[0],file:any=await fixture.db.prepare('SELECT project_id FROM files WHERE id=?').bind(version.id).first();
+ assert.equal(state.documents.length,1);assert.equal(state.documents[0].projectId,file.project_id);assert.equal(item.projectId,file.project_id);assert.equal(state.documents[0].versions[0].id,version.id);
+ assert.equal((await load(orgId,member)).workspace.intakeItems.length,0);assert.equal((await call(`${root}/files/${version.id}/url`,member)).status,403);
+ assert.equal((await call(`${root}/workspace/page?collection=intakeItems&revision=${state.revision}`,member)).items.length,0);
+ await call(`${root}/admin/assignments`,owner,{projectId:file.project_id,memberId:mid,assigned:true});
+ assert.equal((await call(`${root}/files/${version.id}/url`,member)).status,200);assert.equal((await load(orgId,member)).workspace.intakeItems.length,1);
+ await call(`${root}/admin/members/${mid}`,owner,{role:'viewer',active:true});
+ assert.equal((await call(`${root}/files/prepare`,member,{projectId:null,name:'test',size:1})).status,403);
+ assert.equal((await cmd(orgId,{type:'intake.add',id:'viewer',title:'메모',note:'',source:{kind:'text',text:'메모'}},member)).status,403);
+});
+
+test('반복 업무: 관리자 권한·담당자 배정 검증·단일 알림·행 저장·요청 재전송·중단 이력',async()=>{
+ const orgId=await create(),pid=await project(orgId),mid=await join(orgId),root=`organizations/${orgId}`;
+ const today=new Date().toISOString().slice(0,10),seriesId=crypto.randomUUID();
+ const createSeries:Command={type:'task.series.create',series:{id:seriesId,orgId,projectId:pid,title:'주간 운영 회의',ownerId:mid,start:today,end:'2027-01-01',frequency:'weekly',interval:1}};
+ assert.equal((await cmd(orgId,createSeries,member)).status,403);assert.equal((await cmd(orgId,createSeries)).status,400);
+ await call(`${root}/admin/assignments`,owner,{projectId:pid,memberId:mid,assigned:true});
+ const revision=(await load(orgId)).workspace.revision,operation=crypto.randomUUID();
+ const created=await cmd(orgId,createSeries,owner,revision,operation);assert.equal(created.status,200);assert.ok(created.workspace.tasks.length>1);assert.equal(created.workspace.taskSeries.length,1);
+ const retry=await cmd(orgId,createSeries,owner,revision,operation);assert.equal(retry.status,200);assert.equal(retry.workspace.tasks.length,created.workspace.tasks.length);
+ const count:any=await fixture.db.prepare('SELECT count(*) n FROM notifications WHERE org_id=? AND recipient_id=?').bind(orgId,mid).first();assert.equal(Number(count.n),1);
+ const task=created.workspace.tasks[0];
+ assert.equal((await cmd(orgId,{type:'task.add',task:{...task,id:'forged'}},member)).status,400);
+ assert.equal((await cmd(orgId,{type:'task.status',projectId:pid,taskId:task.id,status:'done'},member)).status,200);
+ const stopped=await cmd(orgId,{type:'task.series.stop',projectId:pid,seriesId,effectiveFrom:today,reason:'일정 재편'});assert.equal(stopped.status,200);
+ assert.equal(stopped.workspace.tasks[0].status,'done');assert.ok(stopped.workspace.tasks.slice(1).every((t:any)=>t.cancelled));assert.equal(stopped.workspace.taskSeries[0].status,'stopped');
+ const cancelled=stopped.workspace.tasks[1];assert.equal((await cmd(orgId,{type:'task.status',projectId:pid,taskId:cancelled.id,status:'done'},member)).status,400);
+ assert.equal((await call(`${root}/workspace/page?collection=taskSeries&revision=${stopped.workspace.revision}`,member)).items.length,1);
+ assert.equal((await call(`${root}/workspace/page?collection=taskSeries&revision=${stopped.workspace.revision}`,outsider)).status,403);
+});

@@ -5,7 +5,10 @@ export type ExpenseStatus = 'planned' | 'submitted' | 'returned' | 'confirmed' |
 export interface Scoped { id: ID; orgId: ID; projectId: ID }
 export interface Member { id: ID; name: string; role: string }
 export interface Project { id: ID; orgId: ID; name: string; purpose: string; start: string; end: string; ownerId: ID; budget: number; category: string; status?: 'planning'|'active'|'completed'|'archived'; closeNote?: string }
-export interface Task extends Scoped { title: string; due: string; ownerId: ID; status: TaskStatus; priority?: 'normal'|'high'; note?: string; indicatorId?: ID; completedAt?: string }
+export interface Task extends Scoped { title: string; due: string; ownerId: ID; status: TaskStatus; priority?: 'normal'|'high'; note?: string; indicatorId?: ID; completedAt?: string; seriesId?:ID; occurrence?:string; cancelled?:{at:string;actorId:ID;reason:string} }
+export type TaskTemplate = Pick<Task,'title'|'ownerId'|'priority'|'note'|'indicatorId'>;
+export interface TaskSeries extends Scoped, TaskTemplate { start:string;end:string;frequency:'daily'|'weekly'|'monthly';interval:number;status:'active'|'stopped';createdAt:string;createdById:ID;version:number;changes:{at:string;actorId:ID;reason:string;effectiveFrom:string;previous:TaskTemplate;action:'update'|'stop'}[] }
+export interface IntakeItem {id:ID;orgId:ID;projectId?:ID;title:string;note:string;version:DocumentVersion;createdById:ID;createdAt:string;status:'pending'|'linked'|'archived';documentId?:ID;activityId?:ID;history:{at:string;actorId:ID;action:string;reason:string}[]}
 export interface DocumentVersion { id: ID; name: string; size: number; createdAt: string; blobKey?: string; inlineText?: string }
 export interface Document extends Scoped { title: string; versions: DocumentVersion[] }
 export interface EvidenceRef { documentId: ID; versionId: ID }
@@ -56,8 +59,15 @@ export interface Workspace {
   indicators: Indicator[]; measurements: Measurement[]; reports: Report[]; events: AuditEvent[];
   annualPlans?:AnnualPlan[]; annualGoals?:AnnualGoal[]; annualReports?:AnnualReport[]; activities?:Activity[];
   budgetLines?:BudgetLine[]; annualAllocations?:AnnualAllocation[];
+  taskSeries?:TaskSeries[]; intakeItems?:IntakeItem[];
 }
 export type Command =
+  | {type:'task.series.create';series:Pick<TaskSeries,'id'|'orgId'|'projectId'|'start'|'end'|'frequency'|'interval'> & TaskTemplate}
+  | {type:'task.series.update';projectId:ID;seriesId:ID;fields:TaskTemplate;effectiveFrom:string;reason:string}
+  | {type:'task.series.stop';projectId:ID;seriesId:ID;effectiveFrom:string;reason:string}
+  | {type:'intake.add';id:ID;title:string;note:string;source:{kind:'file';version:DocumentVersion}|{kind:'text';text:string}}
+  | {type:'intake.assign';id:ID;projectId:ID;activity?:{date:string;body:string;taskId?:ID;indicatorIds:ID[]}}
+  | {type:'intake.archive';id:ID;archived:boolean;reason:string}
   | { type: 'project.add'; project: Project }
   | { type: 'task.add'; task: Task }
   | { type: 'task.status'; projectId: ID; taskId: ID; status: TaskStatus }

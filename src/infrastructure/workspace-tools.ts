@@ -3,7 +3,7 @@ import type { Workspace } from '../domain/types';
 import { budgetSummary, getProject, metricSummary, projectRows } from '../domain/selectors';
 export function projectProgress(s: Workspace, input: unknown) {
   const { projectId } = z.object({ projectId: z.string().min(1).max(100) }).strict().parse(input);
-  const p = getProject(s, projectId), tasks = projectRows(s, s.tasks, projectId);
+  const p = getProject(s, projectId), tasks = projectRows(s, s.tasks, projectId).filter(t=>!t.cancelled);
   return { projectId: p.id, name: p.name, status: p.status ?? 'active', tasks: { completed: tasks.filter(t => t.status === 'done').length, total: tasks.length }, budget: budgetSummary(s, p.id),
     indicators: projectRows(s, s.indicators, p.id).map(i => { const m = metricSummary(s, i); return { name: m.name, unit: m.unit, target: m.target, forecast: m.forecast, actual: m.actual, rate: m.rate, assessment: m.assessment ?? null }; }) };
 }

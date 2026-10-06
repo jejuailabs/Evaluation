@@ -6,7 +6,14 @@ const expenseFields={title:z.string().min(1).max(160),amount:num.int(),date,owne
 const version=z.object({id,name:z.string().min(1).max(255),size:num.int(),createdAt:z.string().max(40),blobKey:id}).strict();
 const project=z.object({id,orgId:id,name:z.string().min(1).max(80),purpose:text,start:date,end:date,ownerId:id,budget:num.int(),category:z.string().max(80),status:z.enum(['planning','active','completed','archived']).optional(),closeNote:text.optional()}).strict();
 const task=z.object({...scope,title:z.string().min(1).max(160),due:date,ownerId:id,status:z.enum(['todo','doing','done']),priority:z.enum(['normal','high']).optional(),note:text.optional(),indicatorId:id.optional(),completedAt:z.string().max(40).optional()}).strict();
+const template={title:z.string().min(1).max(160),ownerId:id,priority:z.enum(['normal','high']).optional(),note:text.optional(),indicatorId:id.optional()};
 export const commandSchema=z.discriminatedUnion('type',[
+ z.object({type:z.literal('task.series.create'),series:z.object({...scope,id:z.string().min(1).max(85),...template,start:date,end:date,frequency:z.enum(['daily','weekly','monthly']),interval:num.int().min(1).max(12)}).strict()}).strict(),
+ z.object({type:z.literal('task.series.update'),projectId:id,seriesId:id,fields:z.object(template).strict(),effectiveFrom:date,reason:text.min(1)}).strict(),
+ z.object({type:z.literal('task.series.stop'),projectId:id,seriesId:id,effectiveFrom:date,reason:text.min(1)}).strict(),
+ z.object({type:z.literal('intake.add'),id,title:z.string().min(1).max(160),note:text,source:z.discriminatedUnion('kind',[z.object({kind:z.literal('file'),version}).strict(),z.object({kind:z.literal('text'),text:text.min(1)}).strict()])}).strict(),
+ z.object({type:z.literal('intake.assign'),id,projectId:id,activity:z.object({date,body:text.min(1),taskId:id.optional(),indicatorIds:z.array(id).max(50)}).strict().optional()}).strict(),
+ z.object({type:z.literal('intake.archive'),id,archived:z.boolean(),reason:text.min(1)}).strict(),
  z.object({type:z.literal('project.add'),project}).strict(),
  z.object({type:z.literal('project.update'),project,reason:text.min(1)}).strict(),
  z.object({type:z.literal('task.add'),task}).strict(),

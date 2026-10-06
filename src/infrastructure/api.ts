@@ -28,7 +28,7 @@ export async function api<T=any>(path:string,data?:unknown,method=data===undefin
 }
 export const loadCloud=(orgId:string)=>api<CloudWorkspace>(`organizations/${encodeURIComponent(orgId)}/workspace`);
 export const sendCommand=(orgId:string,command:Command,revision:number,id:string)=>api<CloudWorkspace>(`organizations/${encodeURIComponent(orgId)}/commands`,{id,revision,command});
-export async function uploadCloud(orgId:string,projectId:string,file:File):Promise<DocumentVersion>{
+export async function uploadCloud(orgId:string,projectId:string|null,file:File):Promise<DocumentVersion>{
  if(!file.size||file.size>25*1024*1024)throw new Error('비어 있지 않은 25MB 이내 파일을 선택해 주세요.');
  const path=`organizations/${encodeURIComponent(orgId)}/files`;
  const prepared=await api<{id:string;uploadUrl:string}>(`${path}/prepare`,{projectId,name:file.name,size:file.size});

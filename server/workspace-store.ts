@@ -3,7 +3,7 @@ import type {Workspace} from '../src/domain/types';
 import {workspaceTables,collectionKeys,type Collection} from '../src/domain/workspace-collections';
 import type {Database,Statement} from './database';
 import {HttpError,visibleWorkspace,type Actor} from './policy';
-const descending=new Set<Collection>(['reports','events','annualReports']);
+const descending=new Set<Collection>(['reports','events','annualReports','intakeItems']);
 const annual=new Set<Collection>(['annualPlans','annualGoals','annualReports','annualAllocations']);
 const rows=(s:Workspace,k:Collection)=>(s[k]??[]) as {id:string;projectId?:string}[];
 export function workspaceMetadata(s:Workspace){const result:Record<string,unknown>={...s};for(const key of collectionKeys)delete result[key];delete result.members;return result;}
@@ -39,7 +39,7 @@ export async function workspacePage(db:Database,orgId:string,userId:string,url:U
  const key=z.enum(collectionKeys as [Collection,...Collection[]]).parse(url.searchParams.get('collection'));
  const revision=z.coerce.number().int().nonnegative().parse(url.searchParams.get('revision'));
  const offset=z.coerce.number().int().min(0).max(1_000_000).parse(url.searchParams.get('offset')??0);
- const visible=annual.has(key)?"m.role IN ('owner','admin')":`(m.role IN ('owner','admin') OR EXISTS(SELECT 1 FROM project_members p WHERE p.org_id=e.org_id AND p.project_id=e.project_id AND p.member_id=m.id))`;
+ const visible=key==='intakeItems'?`(m.role IN ('owner','admin') OR (e.project_id IS NULL AND e.data->>'createdById'=m.id) OR EXISTS(SELECT 1 FROM project_members p WHERE p.org_id=e.org_id AND p.project_id=e.project_id AND p.member_id=m.id))`:annual.has(key)?"m.role IN ('owner','admin')":`(m.role IN ('owner','admin') OR EXISTS(SELECT 1 FROM project_members p WHERE p.org_id=e.org_id AND p.project_id=e.project_id AND p.member_id=m.id))`;
  const [access,result]=await db.batch([
   db.prepare('SELECT o.revision,o.status,m.role FROM organizations o JOIN memberships m ON m.org_id=o.id WHERE o.id=? AND m.user_id=? AND m.active=1').bind(orgId,userId),
   db.prepare(`SELECT e.data FROM ${workspaceTables[key]} e JOIN organizations o ON o.id=e.org_id JOIN memberships m ON m.org_id=o.id WHERE e.org_id=? AND m.user_id=? AND m.active=1 AND o.status='active' AND o.revision=? AND ${visible} ORDER BY e.position,e.id LIMIT 501 OFFSET ?`).bind(orgId,userId,revision,offset)

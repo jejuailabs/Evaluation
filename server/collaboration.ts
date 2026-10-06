@@ -106,6 +106,10 @@ export function workflowNotifications(ctx:Context,command:Command,next:Workspace
  if(command.type==='task.add'||command.type==='task.update'){
   const task=command.task,old=ctx.state.tasks.find(x=>x.id===task.id);
   if(!old||old.ownerId!==task.ownerId||old.due!==task.due){t={projectId:task.projectId,type:'task',id:task.id};title=`${task.title} · 담당 업무${old?'가 변경됐어요.':'가 배정됐어요.'}`;recipients={members:[task.ownerId]};}
+ }else if(command.type==='task.series.create'||command.type==='task.series.update'||command.type==='task.series.stop'){
+  const id=command.type==='task.series.create'?command.series.id:command.seriesId,series=next.taskSeries!.find(x=>x.id===id)!;
+  t={projectId:series.projectId,type:'project',id:series.projectId};title=`${series.title} · 반복 일정이 ${command.type==='task.series.create'?'배정':command.type==='task.series.stop'?'중단':'변경'}됐어요.`;
+  recipients={members:[series.ownerId,ctx.state.taskSeries?.find(x=>x.id===id)?.ownerId??series.ownerId]};
  }else if(command.type==='measurement.add'){
   const m=command.measurement;t={projectId:m.projectId,type:'measurement',id:m.id};title=`${next.indicators.find(i=>i.id===m.indicatorId)?.name??'실적'} · 확인할 실적이 올라왔어요.`;recipients={managers:true};
  }else if(command.type==='measurement.confirm'||command.type==='measurement.reject'){

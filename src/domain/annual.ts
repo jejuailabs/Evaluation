@@ -24,7 +24,7 @@ export function annualProjects(s:Workspace,p:AnnualPlan){
 export function annualSnapshot(s:Workspace,p:AnnualPlan,start:string,end:string,note:string,now:string):AnnualReport {
   const projects=annualProjects(s,p).map(project=>{
     const costs=expenseTotals(s.expenses.filter(e=>e.projectId===project.id&&e.orgId===p.orgId),start,end);
-    const tasks=s.tasks.filter(t=>t.projectId===project.id&&t.due>=start&&t.due<=end);
+    const tasks=s.tasks.filter(t=>!t.cancelled&&t.projectId===project.id&&t.due>=start&&t.due<=end);
     return {id:project.id,name:project.name,owner:ownerName(s,project.ownerId),status:project.status??'active',allocated:p.budgetPolicy==='yearly'?(s.annualAllocations??[]).find(a=>a.planId===p.id&&a.projectId===project.id)?.amount??0:project.budget,
       spent:costs.spent,paid:costs.paid,
       done:tasks.filter(t=>t.status==='done').length,tasks:tasks.length};

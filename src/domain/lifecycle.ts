@@ -54,13 +54,13 @@ export function applyLifecycle(s:Workspace,c:Command,now:string):{projectId:stri
       if(s.expenses.filter(e=>e.projectId===p.id&&isApproved(e)).reduce((n,e)=>n+e.amount,0)>c.project.budget)throw new Error('승인한 집행보다 프로젝트 예산을 줄일 수 없어요.');
       if(s.expenses.filter(e=>e.projectId===p.id).flatMap(e=>e.payments??[]).some(x=>x.date<c.project.start||x.date>c.project.end))throw new Error('지급 기록의 날짜를 포함하는 프로젝트 기간으로 정해 주세요.');
       if(!s.members.some(m=>m.id===c.project.ownerId))throw new Error('담당자를 확인해 주세요.');
-      const dates=[...s.expenses.filter(e=>e.projectId===p.id).map(e=>e.date),...s.measurements.filter(m=>m.projectId===p.id).flatMap(m=>[m.asOf,m.periodStart??m.asOf]),...s.tasks.filter(t=>t.projectId===p.id).map(t=>t.due),...s.activities.filter(a=>a.projectId===p.id).map(a=>a.date)];
+      const dates=[...s.expenses.filter(e=>e.projectId===p.id).map(e=>e.date),...s.measurements.filter(m=>m.projectId===p.id).flatMap(m=>[m.asOf,m.periodStart??m.asOf]),...s.tasks.filter(t=>t.projectId===p.id&&!t.cancelled).map(t=>t.due),...s.activities.filter(a=>a.projectId===p.id).map(a=>a.date)];
       if(dates.some(d=>d<c.project.start||d>c.project.end))throw new Error('기존 업무·집행·실적·기록을 포함하는 기간으로 설정해 주세요.');
       const targetStatus=c.project.status??'active';
       if(targetStatus==='archived'&&!['completed','archived'].includes(p.status??''))throw new Error('완료한 프로젝트만 보관할 수 있어요.');
       if(targetStatus==='completed'&&p.status!=='completed'){
         if(s.expenses.some(e=>e.projectId===p.id&&(['planned','submitted','returned'].includes(e.status)||(isApproved(e)&&expensePaid(e)<e.amount))))throw new Error('남은 집행 요청과 미지급액을 먼저 정리해 주세요.');
-        if(s.tasks.some(t=>t.projectId===p.id&&t.status!=='done')||s.measurements.some(m=>m.projectId===p.id&&m.status==='pending'))throw new Error('남은 업무와 확인 전 실적을 먼저 정리해 주세요.');
+        if(s.tasks.some(t=>t.projectId===p.id&&!t.cancelled&&t.status!=='done')||s.measurements.some(m=>m.projectId===p.id&&m.status==='pending'))throw new Error('남은 업무와 확인 전 실적을 먼저 정리해 주세요.');
         if(!s.reports.some(r=>r.projectId===p.id&&r.asOf>=(p.end<today()?p.end:today())))throw new Error('마감 시점의 프로젝트 보고서를 먼저 만들어 주세요.');
         text(c.project.closeNote??'','마무리 기록');
       }
@@ -68,16 +68,17 @@ export function applyLifecycle(s:Workspace,c:Command,now:string):{projectId:stri
     }
     case 'task.update': {
       const old=s.tasks.find(t=>t.id===c.task.id&&t.projectId===c.task.projectId&&t.orgId===s.organization.id);if(!old||c.task.orgId!==s.organization.id)throw new Error('업무를 찾지 못했어요.');
+      if(old.cancelled)throw new Error('중단한 반복 일정은 변경할 수 없어요.');
       const p=getProject(s,old.projectId);text(c.task.title,'업무');date(c.task.due);if(c.task.due<p.start||c.task.due>p.end)throw new Error('프로젝트 기간 안에 기한을 정해 주세요.');
       if(!s.members.some(m=>m.id===c.task.ownerId))throw new Error('담당자를 확인해 주세요.');
       if(c.task.indicatorId&&!s.indicators.some(i=>i.id===c.task.indicatorId&&i.projectId===p.id))throw new Error('이 프로젝트의 목표를 선택해 주세요.');
-      Object.assign(old,c.task,{completedAt:c.task.status==='done'?(old.completedAt??now):undefined});projectId=p.id;action=`업무 수정 · ${old.title}`;break;
+      Object.assign(old,c.task,{seriesId:old.seriesId,occurrence:old.occurrence,cancelled:old.cancelled,completedAt:c.task.status==='done'?(old.completedAt??now):undefined});projectId=p.id;action=`업무 수정 · ${old.title}`;break;
     }
     case 'activity.add': {
       const a=c.activity,p=getProject(s,a.projectId);if(a.orgId!==s.organization.id)throw new Error('조직이 일치하지 않아요.');if(s.activities.some(x=>x.id===a.id))throw new Error('이미 저장된 기록이에요.');text(a.title,'기록 이름');text(a.body,'내용');date(a.date);
       if(a.date<p.start||a.date>p.end||a.date>today())throw new Error('프로젝트 기간 안에서 오늘까지의 날짜로 기록해 주세요.');
       if(!s.members.some(m=>m.id===a.ownerId))throw new Error('작성자를 확인해 주세요.');
-      if(a.taskId&&!s.tasks.some(t=>t.id===a.taskId&&t.projectId===p.id))throw new Error('같은 프로젝트의 업무를 연결해 주세요.');
+      if(a.taskId&&!s.tasks.some(t=>t.id===a.taskId&&t.projectId===p.id&&!t.cancelled))throw new Error('같은 프로젝트의 업무를 연결해 주세요.');
       if(a.indicatorIds.some(id=>!s.indicators.some(i=>i.id===id&&i.projectId===p.id)))throw new Error('같은 프로젝트의 지표를 연결해 주세요.');
       a.evidence.forEach(ref=>resolveEvidence(s,p.id,ref));
       const documentId=uid();const content=`${a.title}\n${a.date}\n\n${a.body}`;

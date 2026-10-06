@@ -1,3 +1,5 @@
+import {applyRecurrence} from './recurrence';
+import {applyIntake} from './intake';
 import { allocateAnnualBudget, validateAnnualBudget } from './annual-budget';
 import type { Workspace, Command, Scoped } from './types';
 import { getProject, projectRows, resolveEvidence, budgetSummary, metricSummary, uid, today, confirmedMeasurements } from './selectors';
@@ -23,10 +25,10 @@ function uniqueId(rows: { id: string }[], id: string) { if (rows.some(x => x.id 
 export function execute(original: Workspace, input: Command, now = new Date().toISOString(), actorId = original.members[0]?.id??'demo'): Workspace {
   const command=structuredClone(input);
   const s = structuredClone(original);
-  const row='project' in command?command.project:'task' in command?command.task:'expense' in command?command.expense:'document' in command?command.document:'indicator' in command?command.indicator:'measurement' in command?command.measurement:'activity' in command?command.activity:null;
+  const row='project' in command?command.project:'task' in command?command.task:'expense' in command?command.expense:'document' in command?command.document:'indicator' in command?command.indicator:'measurement' in command?command.measurement:command.type==='activity.add'?command.activity:'series' in command?command.series:null;
   const affected='projectId' in command?command.projectId:'line' in command?command.line.projectId:row?('projectId' in row?row.projectId:row.id):'';
   if(affected&&!['project.add','project.update','report.create'].includes(command.type)&&['completed','archived'].includes(s.projects.find(p=>p.id===affected)?.status??''))throw new Error('완료·보관한 프로젝트예요. 계획·상태에서 진행 중으로 다시 열어 주세요.');
-  const extended=command.type==='annual.budget.allocate'?allocateAnnualBudget(s,command,now,actorId):applyFinance(s,command,now,actorId)??applyLifecycle(s,command,now);
+  const extended=command.type==='annual.budget.allocate'?allocateAnnualBudget(s,command,now,actorId):applyRecurrence(s,command,now,actorId)??applyIntake(s,command,now,actorId)??applyFinance(s,command,now,actorId)??applyLifecycle(s,command,now);
   if(extended){validateAnnualBudget(original,s);s.revision++;s.events.unshift({id:uid(),...extended,at:now});return s;}
   let projectId = '';
   let action = '';
@@ -40,7 +42,7 @@ export function execute(original: Workspace, input: Command, now = new Date().to
       amount(p.budget); member(s, p.ownerId); s.projects.push(p); projectId = p.id; action = '프로젝트를 만들었어요'; break;
     }
     case 'task.add': {
-      const t = command.task; scope(s, t); uniqueId(s.tasks, t.id); requireText(t.title, '업무'); validDate(t.due); member(s, t.ownerId);
+      const t = command.task; if(t.seriesId||t.occurrence||t.cancelled)throw new Error('반복 업무 만들기를 사용해 주세요.'); scope(s, t); uniqueId(s.tasks, t.id); requireText(t.title, '업무'); validDate(t.due); member(s, t.ownerId);
       const p=getProject(s,t.projectId);if(t.due<p.start||t.due>p.end)throw new Error('프로젝트 기간 안에 업무 기한을 정해 주세요.');
       if(t.indicatorId&&!projectRows(s,s.indicators,p.id).some(i=>i.id===t.indicatorId))throw new Error('이 프로젝트의 목표를 선택해 주세요.');
       t.completedAt=t.status==='done'?now:undefined;
@@ -48,6 +50,7 @@ export function execute(original: Workspace, input: Command, now = new Date().to
     }
     case 'task.status': {
       const t = projectRows(s, s.tasks, command.projectId).find(x => x.id === command.taskId);
+      if(t?.cancelled)throw new Error('중단한 반복 일정은 변경할 수 없어요.');
       if (!t) throw new Error('업무를 찾지 못했어요.');
       if (!['todo', 'doing', 'done'].includes(command.status)) throw new Error('업무 상태가 올바르지 않아요.');
       t.status = command.status; t.completedAt=t.status==='done'?now:undefined; projectId = t.projectId; action = `업무 상태 변경 · ${t.title}`; break;
@@ -113,7 +116,7 @@ export function execute(original: Workspace, input: Command, now = new Date().to
       const p = getProject(s, command.projectId); validDate(command.asOf);
       if (command.asOf < p.start || command.asOf > p.end || command.asOf > today()) throw new Error('보고 기준일은 사업 시작일부터 오늘 또는 사업 종료일까지예요.');
       const start=command.periodStart??p.start;validDate(start);if(start<p.start||start>command.asOf)throw new Error('보고 시작일을 확인해 주세요.');
-      const tasks = projectRows(s, s.tasks, p.id).filter(t => t.due <= command.asOf&&t.due>=start);
+      const tasks = projectRows(s, s.tasks, p.id).filter(t => !t.cancelled&&t.due <= command.asOf&&t.due>=start);
       const measurements = projectRows(s, s.measurements, p.id).filter(m => m.asOf <= command.asOf&&m.asOf>=start);
       const metrics = projectRows(s, s.indicators, p.id).map(i => metricSummary(s, i, command.asOf,start));
       const refKeys = new Set(metrics.flatMap(m => [...(m.evidenceVersionIds??(m.evidenceVersionId ? [m.evidenceVersionId] : [])),...(m.planningSource?[m.planningSource.evidence.versionId]:[])]));

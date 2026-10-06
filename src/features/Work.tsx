@@ -5,7 +5,7 @@ import { type Context, Empty, Field, Heading, Pill } from '../ui/shared';
 
 export function Work({s,run,canWrite=true}:Context){
  const [project,setProject]=useState('');const [owner,setOwner]=useState('');const [view,setView]=useState('board');const [month,setMonth]=useState(today().slice(0,7));
- const tasks=s.tasks.filter(t=>(!project||t.projectId===project)&&(!owner||t.ownerId===owner)).sort((a,b)=>a.due.localeCompare(b.due));
+ const tasks=s.tasks.filter(t=>!t.cancelled&&(!project||t.projectId===project)&&(!owner||t.ownerId===owner)).sort((a,b)=>a.due.localeCompare(b.due));
  const [year,mon]=month.split('-').map(Number),first=new Date(year,mon-1,1).getDay(),last=new Date(year,mon,0).getDate();
  function move(delta:number){const d=new Date(year,mon-1+delta,1);setMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);}
  function card(t:Task){return <article className="work-card" key={t.id}><small>{s.projects.find(p=>p.id===t.projectId)?.name}</small><a href={`#/projects/${t.projectId}/tasks`}><h3>{t.title}</h3></a><p>{ownerName(s,t.ownerId)} · {t.due}</p>{t.priority==='high'&&<Pill tone="amber">먼저 진행</Pill>}{t.due<today()&&t.status!=='done'&&<Pill tone="amber">기한 지남</Pill>}{t.indicatorId&&<p className="footnote">연결 목표 · {s.indicators.find(i=>i.id===t.indicatorId)?.name}</p>}<select aria-label={`${t.title} 상태`} disabled={!canWrite||['completed','archived'].includes(s.projects.find(p=>p.id===t.projectId)?.status??'')} value={t.status} onChange={e=>run({type:'task.status',projectId:t.projectId,taskId:t.id,status:e.target.value as Task['status']})}>{Object.entries(taskLabels).map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></article>;}

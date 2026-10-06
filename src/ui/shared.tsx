@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode, type FormEvent } from 'react';
 import type { Workspace, Command, EvidenceRef, DocumentVersion } from '../domain/types';
 
-export type Context = { s: Workspace; run: (command: Command) => Promise<boolean>; notify: (text: string) => void; canWrite?:boolean; canManage?:boolean; cloud?:boolean; memberId?:string; saveError?:string; clearError?:()=>void; upload?:(projectId:string,file:File)=>Promise<DocumentVersion>; read?:(version:DocumentVersion)=>Promise<Blob> };
+export type Context = { s: Workspace; run: (command: Command) => Promise<boolean>; notify: (text: string) => void; canWrite?:boolean; canManage?:boolean; cloud?:boolean; memberId?:string; saveError?:string; clearError?:()=>void; uploadInbox?:(file:File)=>Promise<DocumentVersion>; upload?:(projectId:string,file:File)=>Promise<DocumentVersion>; read?:(version:DocumentVersion)=>Promise<Blob> };
 export function Icon({ name, size = 20 }: { name: string; size?: number }) {
   const paths: Record<string, ReactNode> = {
     home: <><path d="m3 10 9-7 9 7v10H3Z"/><path d="M9 20v-7h6v7"/></>,
