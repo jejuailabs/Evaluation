@@ -163,3 +163,11 @@
 - 모의 응답 없이 로컬 앱을 새 Edge 브라우저로 열고 실제 Google 버튼 클릭 → Google 계정 로그인 화면 확인. `/api/session`의 `googleReady`, `emailReady`, `workspaceReady` 모두 true, 인증 전 user null, PKCE 검증 쿠키 HttpOnly, 화면 오류 0.
 - 운영 도메인의 익명 `/api/session` 및 `/auth/google`은 Vercel `/sso-api`로 302 이동. 배포 접근 보호 때문에 운영 앱의 환경변수·버튼·콜백은 검증하지 못함. 로컬 성공과 운영 전체 로그인 성공을 구분함.
 - 이전 공개 회원가입 수정 커밋 `97bb26e`의 Vercel 배포 상태는 success로 확인. 이번 변경은 원격 제공자 설정과 문서 기록이며 추가 패키지 설치나 인증 코드 변경 없음.
+
+## 2026-10-06 · 실제 운영 도메인 확정 및 복귀 주소 수정
+
+- 사용자가 운영 주소를 `https://evaluation-five-xi.vercel.app`으로 확정. 이전 `evaluation-jejuai.vercel.app`에서 관찰한 Vercel 보호 응답을 현재 서비스의 차단 원인으로 설명한 것을 정정.
+- 실제 운영 주소의 첫 화면과 `/api/session`은 익명 200. 세션 API는 `auth.status: unconfigured`, `emailReady: false`, `googleReady: false`, `workspaceReady: false`로 응답하며 Google 시작 요청은 설정 미비 안내로 이동. Vercel 보호가 아니라 운영 환경설정이 아직 준비되지 않은 상태.
+- 새 `/auth/callback`을 Supabase Redirect URLs에 추가하고 재조회로 확인. 기존 허용 주소·공유 Site URL은 보존.
+- Git 제외 `.env.vercel.local`의 `APP_URL`을 새 주소로 수정. 등록용 필수 값 누락 없음 확인. 로컬 개발 `.env.local`의 `APP_URL`은 로컬 주소 유지.
+- 현재 Vercel CLI 계정에서는 해당 Evaluation 프로젝트 접근이 되지 않아 원격 환경변수 등록은 미수행. 로컬 파일 준비·Supabase 설정 적용·Vercel 원격 설정을 구분.

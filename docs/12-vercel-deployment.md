@@ -21,7 +21,7 @@
 
 `.env.example`을 기준으로 Vercel의 Production/Preview 범위에 따로 등록합니다. `.env.local`은 Git에 올리지 않습니다. 서버 키에 `VITE_`나 `NEXT_PUBLIC_`를 붙이지 않습니다.
 
-Vercel 등록용 `.env.vercel.local`을 준비했고 서버 키까지 반영했습니다(Git 제외, 비밀값 포함). 운영 `APP_URL`은 `https://evaluation-jejuai.vercel.app`입니다. 이 파일의 값을 Vercel 프로젝트의 환경변수에 등록하고 재배포해야 합니다. 로컬 파일 갱신만으로 배포 서버의 설정이 바뀌지는 않습니다. 관리 토큰과 마이그레이션 관리자 접속값은 이 파일에서 제외합니다.
+Vercel 등록용 `.env.vercel.local`을 준비했고 서버 키까지 반영했습니다(Git 제외, 비밀값 포함). 사용자가 확정한 운영 `APP_URL`은 `https://evaluation-five-xi.vercel.app`입니다. 이 파일의 값을 해당 Vercel 프로젝트의 Settings → Environment Variables에서 Production 환경으로 등록하고 재배포해야 합니다. 로컬 파일 갱신이나 Git 푸시만으로 배포 서버의 비밀 설정이 바뀌지는 않습니다. 관리 토큰과 마이그레이션 관리자 접속값은 이 파일에서 제외합니다.
 
 | 이름 | 값/용도 |
 | --- | --- |
@@ -79,11 +79,11 @@ Supabase Auth에서 Email provider를 활성화합니다. Confirm signup과 Magi
 
 `/api/session`은 Supabase `/auth/v1/settings`의 Email·Google 활성화 상태를 확인합니다. 환경변수만 입력했다고 Google OAuth 연결을 완료로 표시하지 않습니다. 공급자 활성 여부는 OAuth 클라이언트·SMTP의 실제 작동 검증을 대신하지 않습니다.
 
-Supabase Auth → Providers에서 Google OAuth를 설정합니다. Google Cloud의 OAuth redirect URI는 `https://tcodixafsipheefvuouc.supabase.co/auth/v1/callback`입니다. 공유 프로젝트의 기존 **Site URL과 메일 템플릿을 덮어쓰지 않습니다.** Redirect URLs의 기존 항목을 유지하면서 `https://evaluation-jejuai.vercel.app/auth/callback`과 로컬 개발용 `http://127.0.0.1:5173/auth/callback`을 추가합니다. 앱은 명시적으로 `APP_URL/auth/callback`을 지정합니다. Google Client Secret은 Supabase Provider 설정에 저장합니다.
+Supabase Auth → Providers에서 Google OAuth를 설정합니다. Google Cloud의 OAuth redirect URI는 `https://tcodixafsipheefvuouc.supabase.co/auth/v1/callback`입니다. 공유 프로젝트의 기존 **Site URL과 메일 템플릿을 덮어쓰지 않습니다.** Redirect URLs의 기존 항목을 유지하면서 `https://evaluation-five-xi.vercel.app/auth/callback`과 로컬 개발용 `http://127.0.0.1:5173/auth/callback`을 추가합니다. 앱은 명시적으로 `APP_URL/auth/callback`을 지정합니다. Google Client Secret은 Supabase Provider 설정에 저장합니다.
 
 2026-10-06에 위 Google 설정을 적용했습니다. 로컬 `.env.local`의 `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`은 설정 작업용이며 앱 런타임이나 Vercel에 추가할 필요가 없습니다. Supabase 제공자 설정이 사용하며 Git에는 포함하지 않습니다. 공개 Auth 설정과 로컬 `/api/session`에서 Email·Google 모두 활성으로 조회됐고, 새 브라우저의 Google 버튼 클릭과 HttpOnly PKCE 쿠키를 확인했습니다. Google의 `redirect_uri_mismatch`·`invalid_client` 오류는 없었습니다. 계정 입력·동의와 최종 세션 발급은 이번 확인에 포함하지 않았습니다.
 
-현재 운영 도메인의 익명 `/api/session`, `/auth/google` 요청은 Vercel의 `/sso-api`로 이동합니다. 이는 앱의 Supabase 인증 전에 적용되는 배포 접근 보호입니다. 일반 사용자에게 공개하려면 Vercel 프로젝트의 운영 배포 접근 보호를 해제하고 운영 환경변수·Google 인증 후 복귀까지 재검증해야 합니다.
+사용자가 확정한 운영 주소 `https://evaluation-five-xi.vercel.app`의 첫 화면과 `/api/session`은 익명 요청으로 200을 반환합니다. 이 주소에는 앞서 다른 주소에서 확인했던 Vercel 로그인 보호 문제가 없습니다. 현재 `/api/session`은 `auth.status: unconfigured`, `workspaceReady: false`를 반환합니다. 환경변수를 등록하고 재배포한 뒤 제공자 활성 상태·DB 연결·Google 인증 후 복귀를 재검증해야 합니다. 이 도메인의 Supabase 복귀 주소 등록은 완료했으며, 배포 서버의 환경변수 등록은 현재 CLI 계정이 해당 프로젝트에 접근하지 못해 아직 수행하지 않았습니다.
 
 현재 MCP에는 Auth 설정 수정·Secret Key 조회 도구가 없어 사용자가 등록한 PAT로 공식 Management API를 사용했습니다. 인증 설정 읽기·복귀 URL 추가·기존 서버 키 조회를 완료했습니다. PAT는 프로젝트 범위를 `projecthub`로 제한하고 Auth Config와 Project Settings는 Read-write, API Keys와 API Key Secrets는 Read로 설정합니다. Auth 설정 변경 API는 Site URL 변경 여부와 무관하게 Auth Config와 Project Settings 쓰기 권한을 모두 요구합니다. 관리 토큰은 로컬 `SUPABASE_ACCESS_TOKEN`으로만 사용하고 Vercel·브라우저·Git에 전달하지 않습니다.
 
