@@ -2,11 +2,11 @@
 
 사업을 계획하고, 함께 진행하고, 결과를 보고하는 일을 한곳에서. 일하면서 남긴 기록이 우리 조직의 성과가 됩니다.
 
-**상태: 2026-10-06, v0.6 · 기존 기능을 유지하며 Vinext + Nitro / Vercel + Supabase PostgreSQL·Storage 배포 구조로 전환. 운영 출시 조건은 아직 모두 충족하지 않았습니다.**
+**상태: 2026-10-06, v0.6 · Vercel 배포 구조 유지. 사용자 승인으로 기존 Supabase `projecthub`에 전용 `value_lens` 스키마·DB 접속 계정·비공개 버킷을 생성하고 실제 DB 연결을 검증했습니다. Google OAuth·파일 서버 키·운영 환경변수 연결은 남아 있습니다.**
 
 ## Vercel 배포
 
-[배포 설정·환경변수·DB 준비 순서](docs/12-vercel-deployment.md)를 먼저 확인하세요. Framework는 **Other**, Root Directory는 **./**, 빌드는 **npm run build:vercel**입니다. `vercel.json`에 설정을 포함했습니다. 서버 데이터베이스·Google OAuth·Storage 연결값은 별도 설정이 필요합니다.
+[배포 설정·환경변수·DB 준비 순서](docs/12-vercel-deployment.md)를 먼저 확인하세요. Framework는 **Other**, Root Directory는 **./**, 빌드는 **npm run build:vercel**입니다. `vercel.json`에 설정을 포함했습니다. 로컬 DB 연결은 완료했으며 Vercel 환경변수는 별도 등록해야 합니다. `npm run check:services`로 DB·이메일/Google 제공자·비공개 버킷 설정을 확인합니다. 제공자 활성 여부는 실제 로그인 성공을 대신하지 않습니다.
 
 ## 이전 웹페이지 열기
 

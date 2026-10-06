@@ -16,6 +16,7 @@
     "build:vercel": "node scripts/build-vercel.mjs",
     "db:migrate": "node --env-file-if-exists=.env.local scripts/migrate-postgres.mjs",
     "storage:setup": "node --env-file-if-exists=.env.local scripts/setup-storage.mjs",
+    "check:services": "node --env-file-if-exists=.env.local scripts/check-services.mjs",
     "storage:cleanup": "node --env-file-if-exists=.env.local --import tsx scripts/cleanup-uploads.ts",
     "verify:vercel": "node scripts/verify-vercel.mjs",
     "db:generate:legacy": "drizzle-kit generate"

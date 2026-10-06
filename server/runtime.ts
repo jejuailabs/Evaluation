@@ -1,5 +1,6 @@
 import { Pool, types } from 'pg';
 import { PostgresDatabase } from './postgres';
+import { databaseConnectionOptions } from './postgres-connection.mjs';
 import { createObjectStore } from './storage';
 import type { Services } from './api';
 import type { AuthEnv } from './auth';
@@ -16,12 +17,8 @@ export function getRuntime(): Partial<Services> & AuthEnv {
   const config = runtimeSettings();
   let DB: PostgresDatabase | undefined;
   if (config.DATABASE_URL) {
-    const url = new URL(config.DATABASE_URL);
-    const local = ['localhost','127.0.0.1','::1','[::1]'].includes(url.hostname);
-    // Do not let connection-string sslmode weaken certificate verification.
-    for (const key of ['sslmode','sslcert','sslkey','sslrootcert']) url.searchParams.delete(key);
-    const pool = new Pool({ connectionString: url.href, max: 2, idleTimeoutMillis: 10000, connectionTimeoutMillis: 10000,
-      statement_timeout: 20000, ssl: local ? false : { rejectUnauthorized: true },
+    const pool = new Pool({ ...databaseConnectionOptions(config.DATABASE_URL), max: 2, idleTimeoutMillis: 10000, connectionTimeoutMillis: 10000,
+      statement_timeout: 20000,
       types: { getTypeParser(oid, format) {
         if (oid === 20) return (value: string) => { const n = Number(value); if (!Number.isSafeInteger(n)) throw new Error('Integer overflow'); return n; };
         return types.getTypeParser(oid, format);

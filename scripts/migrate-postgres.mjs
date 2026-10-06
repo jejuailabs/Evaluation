@@ -1,11 +1,10 @@
 import { Pool } from 'pg';
 import { createHash } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
-if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required; set it in .env.local');
-const url = new URL(process.env.DATABASE_URL);
-const local = ['localhost','127.0.0.1','::1','[::1]'].includes(url.hostname);
-for (const key of ['sslmode','sslcert','sslkey','sslrootcert']) url.searchParams.delete(key);
-const pool = new Pool({ connectionString: url.href, max: 1, ssl: local ? false : { rejectUnauthorized: true }, connectionTimeoutMillis: 10000 });
+import { databaseConnectionOptions } from '../server/postgres-connection.mjs';
+const databaseUrl = process.env.DATABASE_MIGRATION_URL || process.env.DATABASE_URL;
+if (!databaseUrl) throw new Error('A database connection is required; set it in .env.local');
+const pool = new Pool({ ...databaseConnectionOptions(databaseUrl), max: 1, connectionTimeoutMillis: 10000 });
 let client;
 try {
   client = await pool.connect();
@@ -16,7 +15,8 @@ try {
   await client.query('CREATE TABLE IF NOT EXISTS value_lens._migrations (name text PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())');
   const dir = new URL('../supabase/migrations/', import.meta.url);
   for (const name of (await readdir(dir)).filter(n => n.endsWith('.sql')).sort()) {
-    const sql = await readFile(new URL(name, dir), 'utf8'), checksum = createHash('sha256').update(sql).digest('hex');
+    const sql = (await readFile(new URL(name, dir), 'utf8')).replace(/\r\n/g, '\n');
+    const checksum = createHash('sha256').update(sql).digest('hex');
     const previous = (await client.query('SELECT checksum FROM value_lens._migrations WHERE name=$1',[name])).rows[0];
     if (previous) { if (previous.checksum !== checksum) throw new Error('Migration checksum changed'); continue; }
     await client.query(sql);

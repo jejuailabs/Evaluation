@@ -1,4 +1,4 @@
-> 배포 구조 갱신(2026-10-06): 아래는 기존 Sites/D1/R2 단계의 설계 기록을 포함합니다. 현재 Vercel·Supabase 연결 및 환경변수는 [12 배포 안내](12-vercel-deployment.md)가 기준입니다.
+> 현재 상태(2026-10-06): 사용자 승인으로 Supabase `projecthub` 내부에 `value_lens` 스키마·전용 DB 계정·비공개 버킷을 생성했고 실제 DB 연결을 검증했습니다. 이메일 제공자는 활성, Google은 비활성입니다. 아래는 이전 Sites/D1/R2 단계의 기록입니다. 현재 설정과 남은 연결 작업은 [12 배포 안내](12-vercel-deployment.md)가 기준입니다.
 
 # 08. Google 로그인 · Supabase 연결
 

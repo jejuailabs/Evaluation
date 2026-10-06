@@ -120,3 +120,17 @@
 - 타입 검사·Vercel 빌드·산출물 검증 통과. 전체 테스트 82/82 후 취소 경로 사례 추가, 인증 테스트 12/12 통과.
 - 실제 브라우저에서 데스크톱·모바일 폼/두 로그인 선택지·인증 메일 요청·재전송 대기·발송 제한·조직 초대 경로·미설정 비활성 표시 확인. UI 검증은 외부 발송 없는 API 모의 응답으로 수행했고 실제 이메일을 발송하지 않음.
 - Supabase MCP는 연결됐지만 Evaluation 전용 프로젝트는 아직 없음. 별도 CLI 계정 인증을 시작했고 사용자 인증 완료가 필요함. 실제 Google 계정/외부 이메일 인수 검증과 SMTP 설정은 완료로 간주하지 않음.
+
+## 2026-10-06 · 기존 Supabase 프로젝트 안에 전용 공간 연결
+
+- 사용자 승인으로 `projecthub` (`tcodixafsipheefvuouc`) 안에 `value_lens` 스키마를 생성. 업무 테이블 9개와 마이그레이션 이력에 RLS 적용, 익명·일반 인증 역할의 직접 테이블 접근 차단.
+- 전용 `value_lens_runtime` 로그인 역할은 NOINHERIT, NOBYPASSRLS, 상위 관리자 역할 가입 없음. 실제 DB에서 기존 public 업무 테이블·auth.users를 조회할 수 없음을 확인.
+- 비공개 `value-lens-documents` 버킷 생성: 25MiB, MIME 제한 없음. 기존 서비스의 버킷과 RLS 정책 보존.
+- 실제 Supabase Transaction pooler TLS 연결, 전용 사용자·조직·소속 INSERT/SELECT/JOIN, 기존 서비스 접근 거부, 트랜잭션 ROLLBACK과 테스트 레코드 0건을 확인. 실제 서비스 계정을 가입시킨 테스트는 아님.
+- 초기 접속의 SELF_SIGNED_CERT_IN_CHAIN은 Supabase 공식 공개 CA를 추가해 해결. 인증서/호스트 검증 유지. 연결 문자열의 검증 해제 옵션도 차단.
+- 권한 분리·TLS 회귀 사례 추가 후 전체 85/85 통과, 타입 검사 통과, Vercel 빌드 성공. 한 차례 로컬 빌드 실패 후 전체 로그를 저장한 재실행에서 성공했으며 최초 실패 원인은 확정하지 않음.
+- Vercel 산출물 검사: 랜딩/작업실/익명 세션 200, 이전 진입 경로 307, 미설정 Google 경로 303. 정적 경로 22개와 파일 2,219개 검사, 로컬 비밀값 포함 없음.
+- Supabase Advisors의 새 업무 테이블 기본키·외래키 인덱스 항목을 보완한 뒤 재조회. 남은 자체 성능 INFO는 초기 데이터가 없어 사용 기록이 없는 인덱스. `_migrations`의 정책 없음 INFO는 직접 접근을 허용하지 않는 이력 테이블의 의도된 상태. [RLS 정책 안내](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy).
+- `check:services` 실제 결과: DB 연결 성공, Auth API 접근 성공, Email 활성, Google 비활성, Storage 서버 키 미설정.
+- 실제 Google 로그인·이메일 수신·Storage 왕복·Vercel 운영 환경변수 연결은 미완료. 공유 프로젝트의 Site URL·Google·메일 설정은 변경하지 않음.
+- `value-lens-codex` 토큰 3개가 대시보드에 보이지만 로컬 CLI는 Access token not provided를 반환했고 환경변수에도 없음. 토큰 발급과 로컬 전달/인증 완료를 구분함. 브라우저 제어 도구는 kernel assets 경로 오류로 실행되지 않아 관리 설정 변경을 완료했다고 주장하지 않음.
