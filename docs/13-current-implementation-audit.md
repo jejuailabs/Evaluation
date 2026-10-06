@@ -1,6 +1,6 @@
 # 13. 현재 기능 구현 상태 — 2026-10-06
 
-**후속 개발:** 이 점검 이후 숫자 OTP 입력·조직 가입키·모바일 보고서 넘침 수정과 현장 자료의 AI 실적 제안→검토→확정→보고 연결을 구현했다. 최신 보완 범위는 [14 문서](14-email-otp-and-organization-keys.md), [15 문서](15-field-outcome-analysis.md)를 함께 적용한다. 프로젝트 댓글·앱 내 알림·25초 자동 갱신은 [16 문서](16-project-collaboration.md)에 추가되었다. 아래 표는 점검 당시 기록이다. 음성 분석 등 남은 범위는 15 문서에서 구분한다.
+**후속 개발:** 이 점검 이후 숫자 OTP 입력·조직 가입키·모바일 보고서 넘침 수정과 현장 자료의 AI 실적 제안→검토→확정→보고 연결을 구현했다. 최신 보완 범위는 [14 문서](14-email-otp-and-organization-keys.md), [15 문서](15-field-outcome-analysis.md)를 함께 적용한다. 프로젝트 댓글·앱 내 알림·25초 자동 갱신은 [16 문서](16-project-collaboration.md)에 추가되었다. 연간 예산 배분과 조직 JSON 1MiB 한도 해소·항목별 저장은 [17 문서](17-annual-budget-and-row-storage.md)에 추가되었다. 아래 표는 점검 당시 기록이다. 음성 분석 등 남은 범위는 15 문서에서 구분한다.
 
 기준 소스: `d94def1` · 운영 주소: https://evaluation-five-xi.vercel.app · 사용자 요청: 전체 기능 구현 단계 확인.
 

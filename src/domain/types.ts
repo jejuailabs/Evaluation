@@ -42,11 +42,12 @@ export interface Report extends Scoped {
   activities?: {title:string;date:string;body:string}[];
   finance?:FinanceSnapshot;
 }
-export interface AnnualPlan {id:ID;orgId:ID;year:number;title:string;purpose:string;budget:number;status:'draft'|'active'|'closed';version:number;changes:{at:string;reason:string;previous:{title:string;purpose:string;budget:number}}[]}
+export interface AnnualAllocation {id:ID;orgId:ID;planId:ID;projectId:ID;amount:number;version:number;changes:{at:string;actorId:ID;reason:string;previous:number}[]}
+export interface AnnualPlan {budgetPolicy?:'yearly';id:ID;orgId:ID;year:number;title:string;purpose:string;budget:number;status:'draft'|'active'|'closed';version:number;changes:{at:string;reason:string;previous:{title:string;purpose:string;budget:number}}[]}
 export interface AnnualGoal {id:ID;orgId:ID;planId:ID;name:string;unit:string;target:number|null;definition:string;direction:'higher'|'lower';aggregation:'sum'|'separate';linkIds:ID[];deduplication:string;version:number;changes:{at:string;reason:string;previous:Omit<AnnualGoal,'changes'>}[]}
 export interface Activity extends Scoped {title:string;body:string;date:string;ownerId:ID;taskId?:ID;indicatorIds:ID[];evidence:EvidenceRef[];documentId:ID;createdAt:string}
 export interface GoalSummary {id:ID;name:string;unit:string;target:number|null;actual:number|null;forecast:number|null;rate:number|null;definition:string;warning:string;metrics:(MetricSummary & {projectName:string})[]}
-export interface AnnualReport {id:ID;orgId:ID;planId:ID;title:string;year:number;start:string;end:string;createdAt:string;planVersion:number;purpose:string;note:string;goals:GoalSummary[];budget:number;allocated:number;spent:number;paid:number;pending:number;projects:{id:ID;name:string;owner:string;status:string;allocated:number;spent:number;paid:number;done:number;tasks:number}[];quarters:{label:string;spent:number;goals:{name:string;actual:number|null;unit:string}[]}[];finance?:FinanceSnapshot}
+export interface AnnualReport {budgetBasis?:'yearly';unallocated?:number;id:ID;orgId:ID;planId:ID;title:string;year:number;start:string;end:string;createdAt:string;planVersion:number;purpose:string;note:string;goals:GoalSummary[];budget:number;allocated:number;spent:number;paid:number;pending:number;projects:{id:ID;name:string;owner:string;status:string;allocated:number;spent:number;paid:number;done:number;tasks:number}[];quarters:{label:string;spent:number;goals:{name:string;actual:number|null;unit:string}[]}[];finance?:FinanceSnapshot}
 export interface AuditEvent { id: ID; projectId: ID; action: string; at: string }
 export interface Workspace {
   schemaVersion: 1; revision: number;
@@ -54,7 +55,7 @@ export interface Workspace {
   projects: Project[]; tasks: Task[]; documents: Document[]; expenses: Expense[];
   indicators: Indicator[]; measurements: Measurement[]; reports: Report[]; events: AuditEvent[];
   annualPlans?:AnnualPlan[]; annualGoals?:AnnualGoal[]; annualReports?:AnnualReport[]; activities?:Activity[];
-  budgetLines?:BudgetLine[];
+  budgetLines?:BudgetLine[]; annualAllocations?:AnnualAllocation[];
 }
 export type Command =
   | { type: 'project.add'; project: Project }
@@ -77,6 +78,7 @@ export type Command =
   | { type: 'measurement.confirm'; projectId: ID; measurementId: ID }
   | { type: 'report.create'; projectId: ID; asOf: string; note: string; periodStart?:string }
   | { type:'annual.plan.save'; plan:Pick<AnnualPlan,'id'|'orgId'|'year'|'title'|'purpose'|'budget'>; reason:string }
+  | { type:'annual.budget.allocate'; planId:ID; allocations:{projectId:ID;amount:number}[]; reason:string }
   | { type:'annual.plan.status'; planId:ID; status:AnnualPlan['status']; reason:string }
   | { type:'annual.goal.save'; goal:Omit<AnnualGoal,'version'|'changes'>; reason:string }
   | { type:'annual.report.create'; planId:ID; start:string; end:string; note:string }

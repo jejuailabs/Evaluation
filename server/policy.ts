@@ -28,6 +28,6 @@ export function visibleWorkspace(s:Workspace,actor:Actor):Workspace {
   copy.activities=(copy.activities??[]).filter(a=>allowed.has(a.projectId));
   copy.budgetLines=(copy.budgetLines??[]).filter(l=>allowed.has(l.projectId));
   // Annual management contains organization-wide budgets and cross-project evidence.
-  copy.annualPlans=[];copy.annualGoals=[];copy.annualReports=[];
+  copy.annualAllocations=[];copy.annualPlans=[];copy.annualGoals=[];copy.annualReports=[];
   return copy;
 }

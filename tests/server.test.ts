@@ -36,6 +36,34 @@ async function outcomeCase(){
  const candidate={indicatorId,value:15,denominator:null,assessment:null,asOf:'2026-09-30',periodStart:null,blockId:'line:1',location:'1행',quote:text,explanation:'명부의 실제 인원',uncertainty:'중복 제외 재확인'};
  return {orgId,pid,mid,indicatorId,input,path,candidate};
 }
+
+test('연간 배분: 서버 권한·동시 승인 한도·재배분·보고 및 분할 조회의 프로젝트 격리',async()=>{
+ const {orgId,pid,mid,input}=await outcomeCase(),other=await project(orgId),planId=crypto.randomUUID();
+ await call(`organizations/${orgId}/admin/assignments`,owner,{projectId:pid,memberId:mid,assigned:true});
+ assert.equal((await cmd(orgId,{type:'annual.plan.save',plan:{id:planId,orgId,year:2026,title:'올해 사업',purpose:'실행',budget:600000},reason:''})).status,200);
+ const allocation:Command={type:'annual.budget.allocate',planId,allocations:[{projectId:pid,amount:300000}],reason:'돌봄 예산'};
+ assert.equal((await cmd(orgId,allocation,member)).status,403);assert.equal((await cmd(orgId,allocation)).status,200);
+ const ids=[crypto.randomUUID(),crypto.randomUUID()];
+ for(const id of ids){
+  assert.equal((await cmd(orgId,{type:'expense.add',expense:{id,orgId,projectId:pid,title:'방문 활동',amount:200000,date:'2026-09-30',ownerId:mid,status:'planned',evidence:{documentId:input.documentId,versionId:input.versionId}}},member)).status,200);
+  assert.equal((await cmd(orgId,{type:'expense.submit',projectId:pid,expenseId:id},member)).status,200);
+ }
+ const revision=(await load(orgId)).workspace.revision;
+ const approve=(id:string):Command=>({type:'expense.review',projectId:pid,expenseId:id,decision:'confirmed',reason:'증빙 확인'});
+ const simultaneous=await Promise.all(ids.map(id=>cmd(orgId,approve(id),owner,revision)));
+ assert.deepEqual(simultaneous.map(r=>r.status).sort(),[200,409]);
+ const pending=(await load(orgId)).workspace.expenses.find((e:any)=>e.status==='submitted').id;
+ const over=await cmd(orgId,approve(pending));assert.equal(over.status,400);assert.match(over.error,/연도 배정액/);
+ assert.equal((await cmd(orgId,{...allocation,allocations:[{projectId:pid,amount:400000}],reason:'잔여 예산에서 증액'})).status,200);
+ assert.equal((await cmd(orgId,approve(pending))).status,200);
+ assert.equal((await cmd(orgId,allocation)).status,400);
+ assert.equal((await cmd(orgId,{type:'annual.report.create',planId,start:'2026-01-01',end:'2026-09-30',note:'3분기 검토'})).status,200);
+ const saved=(await load(orgId)).workspace;assert.equal(saved.annualReports[0].allocated,400000);assert.equal(saved.annualReports[0].unallocated,200000);
+ const page=(collection:string,user=member)=>call(`organizations/${orgId}/workspace/page?collection=${collection}&revision=${saved.revision}`,user);
+ assert.deepEqual((await page('projects')).items.map((p:any)=>p.id),[pid]);assert.ok(!(await page('projects')).items.some((p:any)=>p.id===other));
+ assert.deepEqual((await page('annualAllocations')).items,[]);assert.deepEqual((await page('annualPlans')).items,[]);
+ assert.equal((await page('annualAllocations',owner)).items.length,1);
+});
 test('현장 AI → 구성원 검토 → 관리자 확인 → 보고: 서명·중복·근거 이력을 보존하고 확정 전 집계 차단',async()=>{
  const {orgId,pid,mid,indicatorId,input,path,candidate}=await outcomeCase();
  assert.equal((await call(path,member,input)).status,403);assert.equal((await call(path,outsider,input)).status,403);
@@ -81,7 +109,7 @@ test('현장 AI는 변경된 권한·서명 버전·일일 한도·완료 프로
   assert.equal((await load(orgId)).workspace.measurements.length,0);
   for(let n=0;n<19;n++)await env.DB.prepare('INSERT INTO operations (id,org_id,actor_id,action,request_hash,created_at) VALUES (?,?,?,?,?,?)').bind(crypto.randomUUID(),orgId,owner.userId,'outcomes.ai','test',new Date().toISOString()).run();
   assert.equal((await call(path,owner,input)).status,429);assert.equal(paid,1);
-  const state=(await load(orgId)).workspace;state.projects[0].status='completed';await env.DB.prepare('UPDATE organizations SET body=? WHERE id=?').bind(JSON.stringify(state),orgId).run();
+  const state=(await load(orgId)).workspace;state.projects[0].status='completed';await env.DB.prepare('UPDATE organizations SET body=?,storage_version=1 WHERE id=?').bind(JSON.stringify(state),orgId).run();
   assert.equal((await call(path,owner,input)).status,400);assert.equal(paid,1);
  }finally{globalThis.fetch=original;}
 });
@@ -438,7 +466,7 @@ test('협업: 댓글 페이지 분할·연속 작성 제한·보관 후 읽기 �
  const recent=await call(list);assert.equal(recent.comments.length,50);assert.equal(recent.comments[0].body,'댓글 3');assert.ok(recent.nextCursor);
  const old=await call(`${list}&before=${recent.nextCursor}`);assert.equal(old.comments.length,3);assert.equal(old.nextCursor,null);
  assert.equal((await call(path,owner,{id:crypto.randomUUID(),target:{projectId:pid,type:'project',id:pid},body:'너무 빠른 작성',mentions:[]})).status,429);
- const state=(await load(orgId)).workspace;state.projects[0].status='archived';await env.DB.prepare('UPDATE organizations SET body=?,revision=revision+1 WHERE id=?').bind(JSON.stringify(state),orgId).run();
+ const state=(await load(orgId)).workspace;state.projects[0].status='archived';await env.DB.prepare('UPDATE organizations SET body=?,storage_version=1,revision=revision+1 WHERE id=?').bind(JSON.stringify(state),orgId).run();
  assert.equal((await call(list)).canPost,false);
  assert.equal((await call(`${path}/${recent.comments[0].id}`,owner,{version:1},'DELETE')).status,403);
  // Browser roles never receive grants to these private application tables.

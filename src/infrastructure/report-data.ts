@@ -35,7 +35,7 @@ export function reportSheets(r: ExportReport): ExportSheet[] {
     return rows;
   })] });
   if (isAnnualReport(r)) {
-    sheets.push({ name: '사업비', rows: [['항목', '금액 원'], ['연간 계획', r.budget], ['연결 사업 전체 배정', r.allocated], ['기간 내 확정 집행', r.spent], ['기간 내 지급', r.paid], [], ['프로젝트', '담당자', '사업 전체 예산 원', '기간 확정 원', '지급 원', '완료 업무', '전체 업무'], ...r.projects.map(p => [p.name, p.owner, p.allocated, p.spent, p.paid, p.done, p.tasks])] });
+    sheets.push({ name: '사업비', rows: [['항목', '금액 원'], ['연간 계획', r.budget], [r.budgetBasis==='yearly'?'해당 연도 배정':'연결 사업 전체 배정', r.allocated],...(r.budgetBasis==='yearly'?[['미배분',r.unallocated??0] as Cell[]]:[]), ['기간 내 확정 집행', r.spent], ['기간 내 지급', r.paid], [], ['프로젝트', '담당자', r.budgetBasis==='yearly'?'해당 연도 배정 원':'사업 전체 예산 원', '기간 확정 원', '지급 원', '완료 업무', '전체 업무'], ...r.projects.map(p => [p.name, p.owner, p.allocated, p.spent, p.paid, p.done, p.tasks])] });
     sheets.push({ name: '분기 점검', rows: [['기간', '확정 집행 원', '목표', '기준일까지 확인 수치', '단위'], ...r.quarters.flatMap(q => q.goals.length ? q.goals.map(g => [q.label, q.spent, g.name, g.actual, g.unit]) : [[q.label, q.spent, '', null, '']])] });
   } else {
     sheets.push({ name: '사업비', rows: [['항목', '금액 원'], ['배정', r.budget.allocated], ['확정 집행', r.budget.spent], ['지급', r.budget.paid], ['집행 예정', r.budget.committed], ['가용', r.budget.available], ['미지급', r.budget.unpaid]] });

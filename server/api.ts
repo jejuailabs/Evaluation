@@ -1,3 +1,4 @@
+import {workspaceMetadata,workspacePayload,workspaceWrites,workspacePage} from './workspace-store';
 import { z } from 'zod';
 import { execute } from '../src/domain/commands';
 import { organizationChanges, discussions, notifications, workflowNotifications } from './collaboration';
@@ -12,7 +13,7 @@ import { outcomeRequestSchema, outcomeInput, outcomeFileLimit, suggestOutcomes, 
 
 export type Identity={userId:string;email:string;displayName:string};
 export type Services={DB:Database;BUCKET?:ObjectStore;PLATFORM_ADMIN_USER_IDS?:string} & AIEnv;
-type Org={id:string;name:string;status:string;revision:number;body:string;member_id:string;role:Role};
+type Org={storage_version:number;id:string;name:string;status:string;revision:number;body:string;member_id:string;role:Role};
 const timestamp=()=>new Date().toISOString();
 const uuid=()=>crypto.randomUUID();
 const roles={owner:'조직 대표',admin:'조직 관리자',member:'조직원',viewer:'읽기 전용'};
@@ -44,7 +45,7 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
  async function org(orgId:string){
   // One consistent transaction; all three reads remain scoped to active membership.
   const [organization,assignments,members]=await db.batch([
-   db.prepare('SELECT o.*,m.id AS member_id,m.role FROM organizations o JOIN memberships m ON m.org_id=o.id WHERE o.id=? AND m.user_id=? AND m.active=1').bind(orgId,user.userId),
+   db.prepare('SELECT o.id,o.name,o.status,o.revision,o.storage_version,read_workspace(o.id) AS body,m.id AS member_id,m.role FROM organizations o JOIN memberships m ON m.org_id=o.id WHERE o.id=? AND m.user_id=? AND m.active=1').bind(orgId,user.userId),
    db.prepare('SELECT p.project_id FROM project_members p JOIN memberships m ON m.id=p.member_id AND m.org_id=p.org_id WHERE p.org_id=? AND m.user_id=? AND m.active=1').bind(orgId,user.userId),
    db.prepare('SELECT m.id,u.name,m.role FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.org_id=? AND EXISTS(SELECT 1 FROM memberships a WHERE a.org_id=m.org_id AND a.user_id=? AND a.active=1)').bind(orgId,user.userId),
   ]);
@@ -55,7 +56,7 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
   state.members=members.results.map(m=>({id:m.id as string,name:m.name as string,role:roles[m.role as Role]}));
   return {row,actor,state};
  }
- async function result(orgId:string){const ctx=await org(orgId);return {workspace:visibleWorkspace(ctx.state,ctx.actor),access:ctx.actor};}
+ async function result(orgId:string){const ctx=await org(orgId);return workspacePayload(ctx.state,ctx.actor);}
  function audit(orgId:string,action:string,id=uuid(),requestHash=''){return db.prepare('INSERT INTO operations (id,org_id,actor_id,action,request_hash,created_at) VALUES (?,?,?,?,?,?)').bind(id,orgId,user.userId,action,requestHash,timestamp());}
  // ACL writes bump the same organization revision as project writes, preventing stale authorization snapshots.
  async function adminWrite(ctx:Awaited<ReturnType<typeof org>>,statements:Statement[],action:string){
@@ -72,13 +73,14 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
   return json({user,organizations:organizations.results,platformAdmin:platform,initialWorkspace:requestedOrg?await result(requestedOrg):null});
  }
  if(parts[0]==='organizations'&&parts.length===3&&parts[2]==='changes'&&method==='GET')return json(await organizationChanges(db,parts[1],user.userId));
+ if(parts[0]==='organizations'&&parts.length===4&&parts[2]==='workspace'&&parts[3]==='page'&&method==='GET')return json(await workspacePage(db,parts[1],user.userId,url));
  await syncUser.run();
  if(parts[0]==='organizations'&&parts[1]==='join'&&parts.length===2&&method==='POST')return json(await redeemJoinKey(db,user,await body(req)));
  if(parts[0]==='organizations'&&parts.length===1&&method==='POST'){
   const input=z.object({name:orgName}).strict().parse(await body(req));
   const count=await db.prepare("SELECT COUNT(*) AS n FROM memberships WHERE user_id=? AND role='owner'").bind(user.userId).first<{n:number}>();if((count?.n??0)>=20)throw new HttpError(429,'만들 수 있는 조직 수를 초과했어요.');
   const state=createEmptyWorkspace(input.name,user.displayName.slice(0,40));const orgId=state.organization.id;state.members[0].role=roles.owner;
-  await db.batch([db.prepare('INSERT INTO organizations (id,name,status,revision,body,created_at) VALUES (?,?,\'active\',0,?,?)').bind(orgId,input.name,JSON.stringify(state),timestamp()),db.prepare('INSERT INTO memberships (id,org_id,user_id,role,active) VALUES (?,?,?,\'owner\',1)').bind(state.members[0].id,orgId,user.userId),audit(orgId,'조직 생성')]);
+  await db.batch([db.prepare('INSERT INTO organizations (id,name,status,revision,body,created_at,storage_version) VALUES (?,?,\'active\',0,?,?,2)').bind(orgId,input.name,JSON.stringify(workspaceMetadata(state)),timestamp()),db.prepare('INSERT INTO memberships (id,org_id,user_id,role,active) VALUES (?,?,?,\'owner\',1)').bind(state.members[0].id,orgId,user.userId),audit(orgId,'조직 생성')]);
   return json({id:orgId},201);
  }
  if(parts[0]==='invitations'&&parts[1]==='accept'&&method==='POST'){
@@ -108,7 +110,7 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
  const collaboration={db,orgId,revision:row.revision,state,actor};
  if(parts[2]==='discussions')return json(await discussions(collaboration,method,url,method==='GET'?undefined:await body(req),parts[3]));
  if(parts[2]==='notifications')return json(await notifications(collaboration,method,url,method==='GET'?undefined:await body(req)));
- if(parts[2]==='workspace'&&method==='GET')return json({workspace:visibleWorkspace(state,actor),access:actor});
+ if(parts[2]==='workspace'&&method==='GET')return json(workspacePayload(state,actor));
  if(parts[2]==='planning-ai'){
   requireManager(actor);
   if(method==='GET')return json({ready:aiReady(env),limit:20});
@@ -199,8 +201,9 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
    }
   }
   let next:Workspace;try{next=execute(state,command,timestamp(),actor.memberId);}catch(e){throw new HttpError(400,(e as Error).message);}
-  const encoded=JSON.stringify(next);if(new TextEncoder().encode(encoded).byteLength>1024*1024)throw new HttpError(413,'현재 단계의 조직 저장 한도에 도달했어요.');
-  const updates=await db.batch([db.prepare("UPDATE organizations SET body=?,revision=revision+1 WHERE id=? AND revision=? AND status='active'").bind(encoded,orgId,input.revision),db.prepare('INSERT INTO operations (id,org_id,actor_id,action,request_hash,created_at) SELECT ?,?,?,?,?,? WHERE changes()>0').bind(input.id,orgId,user.userId,command.type,requestHash,timestamp()),...workflowNotifications(collaboration,command,next,input.id)]);
+  const encoded=JSON.stringify(workspaceMetadata(next));
+  const writeToken=uuid(),writes=workspaceWrites(db,orgId,state,next,row.storage_version,input.id,row.body,writeToken);
+  const updates=await db.batch([db.prepare("UPDATE organizations SET body=?,storage_version=2,revision=revision+1 WHERE id=? AND revision=? AND status='active'").bind(encoded,orgId,input.revision),db.prepare('INSERT INTO operations (id,org_id,actor_id,action,request_hash,created_at) SELECT ?,?,?,?,?,? WHERE changes()>0 RETURNING set_config(\'value_lens.command_token\',?,true)').bind(input.id,orgId,user.userId,command.type,requestHash,timestamp(),writeToken),...writes,...workflowNotifications(collaboration,command,next,input.id,writeToken)]);
   if(!updates[0].meta.changes)throw new HttpError(409,'다른 사람이 먼저 저장했어요. 새로고침하고 다시 시도해 주세요.');
   return json(await result(orgId));
  }

@@ -1,3 +1,4 @@
+import { allocateAnnualBudget, validateAnnualBudget } from './annual-budget';
 import type { Workspace, Command, Scoped } from './types';
 import { getProject, projectRows, resolveEvidence, budgetSummary, metricSummary, uid, today, confirmedMeasurements } from './selectors';
 import { applyLifecycle } from './lifecycle';
@@ -25,8 +26,8 @@ export function execute(original: Workspace, input: Command, now = new Date().to
   const row='project' in command?command.project:'task' in command?command.task:'expense' in command?command.expense:'document' in command?command.document:'indicator' in command?command.indicator:'measurement' in command?command.measurement:'activity' in command?command.activity:null;
   const affected='projectId' in command?command.projectId:'line' in command?command.line.projectId:row?('projectId' in row?row.projectId:row.id):'';
   if(affected&&!['project.add','project.update','report.create'].includes(command.type)&&['completed','archived'].includes(s.projects.find(p=>p.id===affected)?.status??''))throw new Error('완료·보관한 프로젝트예요. 계획·상태에서 진행 중으로 다시 열어 주세요.');
-  const extended=applyFinance(s,command,now,actorId)??applyLifecycle(s,command,now);
-  if(extended){s.revision++;s.events.unshift({id:uid(),...extended,at:now});return s;}
+  const extended=command.type==='annual.budget.allocate'?allocateAnnualBudget(s,command,now,actorId):applyFinance(s,command,now,actorId)??applyLifecycle(s,command,now);
+  if(extended){validateAnnualBudget(original,s);s.revision++;s.events.unshift({id:uid(),...extended,at:now});return s;}
   let projectId = '';
   let action = '';
   switch (command.type) {
@@ -129,6 +130,7 @@ export function execute(original: Workspace, input: Command, now = new Date().to
     }
     default: throw new Error('지원하지 않는 변경이에요.');
   }
+  validateAnnualBudget(original,s);
   s.revision++;
   s.events.unshift({ id: uid(), projectId, action, at: now });
   return s;

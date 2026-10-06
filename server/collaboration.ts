@@ -101,7 +101,7 @@ export async function notifications(ctx:Context,method:string,url:URL,input?:unk
  ]);
  const selected=rows.results.slice(0,50) as any[];return {items:selected.map(n=>({id:n.id,seq:Number(n.seq),title:n.title,kind:n.kind,createdAt:n.created_at,readAt:n.read_at,target:{projectId:n.project_id,type:n.target_type,id:n.target_id}})),unread:Number(count.results[0]?.n??0),nextCursor:rows.results.length>50?Number(selected.at(-1)!.seq):null};
 }
-export function workflowNotifications(ctx:Context,command:Command,next:Workspace,eventId:string):Statement[]{
+export function workflowNotifications(ctx:Context,command:Command,next:Workspace,eventId:string,writeToken:string):Statement[]{
  let t:DiscussionTarget|undefined,title='',recipients:Recipient={};const actor=ctx.actor.memberId;
  if(command.type==='task.add'||command.type==='task.update'){
   const task=command.task,old=ctx.state.tasks.find(x=>x.id===task.id);
@@ -117,5 +117,5 @@ export function workflowNotifications(ctx:Context,command:Command,next:Workspace
  }else if(command.type==='task.status'&&command.status==='done'){
   const task=next.tasks.find(t=>t.id===command.taskId)!;t={projectId:task.projectId,type:'task',id:task.id};title=`${task.title} · 업무를 완료했어요.`;recipients={members:[next.projects.find(p=>p.id===task.projectId)!.ownerId,task.ownerId].filter(id=>id!==actor)};
  }
- return t?[notifyStatement(ctx,eventId,t,title,command.type,recipients,'EXISTS(SELECT 1 FROM operations WHERE id=? AND org_id=? AND actor_id=?)',[eventId,ctx.orgId,ctx.actor.userId])]:[];
+ return t?[notifyStatement(ctx,eventId,t,title,command.type,recipients,"EXISTS(SELECT 1 FROM operations WHERE id=? AND org_id=? AND actor_id=?) AND current_setting('value_lens.command_token',true)=?",[eventId,ctx.orgId,ctx.actor.userId,writeToken])]:[];
 }

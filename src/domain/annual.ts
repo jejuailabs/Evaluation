@@ -1,3 +1,4 @@
+import {annualBudget} from './annual-budget';
 import type { AnnualGoal, AnnualPlan, AnnualReport, GoalSummary, Workspace } from './types';
 import { attainment, metricSummary, ownerName, uid } from './selectors';
 import {expenseTotals,financeSnapshot} from './finance-selectors';
@@ -24,14 +25,14 @@ export function annualSnapshot(s:Workspace,p:AnnualPlan,start:string,end:string,
   const projects=annualProjects(s,p).map(project=>{
     const costs=expenseTotals(s.expenses.filter(e=>e.projectId===project.id&&e.orgId===p.orgId),start,end);
     const tasks=s.tasks.filter(t=>t.projectId===project.id&&t.due>=start&&t.due<=end);
-    return {id:project.id,name:project.name,owner:ownerName(s,project.ownerId),status:project.status??'active',allocated:project.budget,
+    return {id:project.id,name:project.name,owner:ownerName(s,project.ownerId),status:project.status??'active',allocated:p.budgetPolicy==='yearly'?(s.annualAllocations??[]).find(a=>a.planId===p.id&&a.projectId===project.id)?.amount??0:project.budget,
       spent:costs.spent,paid:costs.paid,
       done:tasks.filter(t=>t.status==='done').length,tasks:tasks.length};
   });
   const goals=(s.annualGoals??[]).filter(g=>g.planId===p.id);
   const ids=new Set(projects.map(p=>p.id));
   return {id:uid(),orgId:p.orgId,planId:p.id,title:`${p.title} · ${end} 점검`,year:p.year,start,end,createdAt:now,planVersion:p.version,purpose:p.purpose,note,
-    goals:goals.map(g=>annualGoalSummary(s,g,end,start)),budget:p.budget,allocated:projects.reduce((n,p)=>n+p.allocated,0),spent:projects.reduce((n,p)=>n+p.spent,0),paid:projects.reduce((n,p)=>n+p.paid,0),
+    budgetBasis:p.budgetPolicy,unallocated:p.budgetPolicy==='yearly'?annualBudget(s,p).remaining:undefined,goals:goals.map(g=>annualGoalSummary(s,g,end,start)),budget:p.budget,allocated:projects.reduce((n,p)=>n+p.allocated,0),spent:projects.reduce((n,p)=>n+p.spent,0),paid:projects.reduce((n,p)=>n+p.paid,0),
     pending:s.measurements.filter(m=>ids.has(m.projectId)&&m.status==='pending'&&m.asOf>=start&&m.asOf<=end).length,projects,finance:financeSnapshot(s,[...ids],start,end),
     quarters:[1,2,3,4].flatMap(q=>{const from=`${p.year}-${String(q*3-2).padStart(2,'0')}-01`,to=`${p.year}-${String(q*3).padStart(2,'0')}-${q===1||q===4?'31':'30'}`;if(from>end||to<start)return [];const cut=to<end?to:end;return [{label:`${q}분기${cut<to?' · 진행 중':''}`,spent:expenseTotals(s.expenses.filter(e=>ids.has(e.projectId)&&e.orgId===p.orgId),from>start?from:start,cut).spent,goals:goals.map(g=>{const m=annualGoalSummary(s,g,cut,`${p.year}-01-01`);return {name:m.name,actual:m.actual,unit:m.unit};})}];})};
 }

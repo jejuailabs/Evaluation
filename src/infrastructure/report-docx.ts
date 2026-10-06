@@ -21,7 +21,8 @@ export async function reportDOCX(r: ExportReport): Promise<Blob> {
   children.push(p('사업 운영과 예산', HeadingLevel.HEADING_1));
   if (annual) {
     children.push(p(`연간 계획 ${money(r.budget)}   기간 확정 ${money(r.spent)}   지급 ${money(r.paid)}`));
-    children.push(table([['프로젝트 담당자', '사업 전체 예산', '기간 확정', '기간 지급'], ...r.projects.map(x => [x.name + '\n' + x.owner, money(x.allocated), money(x.spent), money(x.paid)])], [3300, 2020, 2020, 2020]));
+    children.push(table([['프로젝트 담당자', r.budgetBasis==='yearly'?'해당 연도 배정':'사업 전체 예산', '기간 확정', '기간 지급'], ...r.projects.map(x => [x.name + '\n' + x.owner, money(x.allocated), money(x.spent), money(x.paid)])], [3300, 2020, 2020, 2020]));
+    if(r.budgetBasis==='yearly')children.push(p(`해당 연도 배정 ${money(r.allocated)} / 미배분 ${money(r.unallocated??0)}`));
     children.push(p('분기별 점검', HeadingLevel.HEADING_2));
     for (const q of r.quarters) children.push(p(`${q.label}   확정 집행 ${money(q.spent)}`), p(q.goals.map(g => `${g.name}: ${g.actual === null ? '미집계' : number(g.actual) + g.unit}`).join('\n')));
   } else children.push(p(`배정 ${money(r.budget.allocated)}   확정 집행 ${money(r.budget.spent)}   지급 ${money(r.budget.paid)}`), p(`집행 예정 ${money(r.budget.committed)}   기간 내 가용 ${money(r.budget.available)}   업무 완료 ${r.completedTasks}/${r.totalTasks}`));

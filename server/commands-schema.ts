@@ -31,6 +31,7 @@ export const commandSchema=z.discriminatedUnion('type',[
  z.object({type:z.literal('measurement.reject'),projectId:id,measurementId:id,reason:text.min(1)}).strict(),
  z.object({type:z.literal('report.create'),projectId:id,asOf:date,note:text,periodStart:date.optional()}).strict(),
  z.object({type:z.literal('annual.plan.save'),plan:z.object({id,orgId:id,year:z.number().int().min(2000).max(2100),title:z.string().min(1).max(160),purpose:text,budget:num.int()}).strict(),reason:text}).strict(),
+ z.object({type:z.literal('annual.budget.allocate'),planId:id,allocations:z.array(z.object({projectId:id,amount:num.int()}).strict()).max(500),reason:text.min(1)}).strict(),
  z.object({type:z.literal('annual.plan.status'),planId:id,status:z.enum(['draft','active','closed']),reason:text.min(1)}).strict(),
  z.object({type:z.literal('annual.goal.save'),goal:z.object({id,orgId:id,planId:id,name:z.string().min(1).max(160),unit:z.string().max(30),target:num.nullable(),definition:text,direction:z.enum(['higher','lower']),aggregation:z.enum(['sum','separate']),linkIds:z.array(id).max(100),deduplication:text}).strict(),reason:text}).strict(),
  z.object({type:z.literal('annual.report.create'),planId:id,start:date,end:date,note:text}).strict(),
