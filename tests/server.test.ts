@@ -374,3 +374,75 @@ test('가입키 추측 요청은 사용자별 10분 10회로 제한되고 시간
  await env.DB.prepare("UPDATE join_key_attempts SET window_start='2020-01-01' WHERE user_id=?").bind(member.userId).run();
  assert.equal((await call('organizations/join',member,{code:key.code})).status,200);
 });
+
+test('협업: 댓글·확인 요청·수정 이력·삭제와 조직/프로젝트 권한',async()=>{
+ const orgId=await create(),pid=await project(orgId),mid=await join(orgId),ownerId=(await load(orgId)).access.memberId;
+ const path=`organizations/${orgId}/discussions`,list=`${path}?project=${pid}&type=project&target=${pid}`,alerts=`organizations/${orgId}/notifications`;
+ const post={id:crypto.randomUUID(),target:{projectId:pid,type:'project',id:pid},body:'회의 결과를 확인해 주세요.',mentions:[mid]};
+ assert.equal((await call(path,owner,post)).status,400); // not yet a project participant
+ assert.equal((await call(list,member)).status,403);assert.equal((await call(list,outsider)).status,403);
+ await call(`organizations/${orgId}/admin/assignments`,owner,{projectId:pid,memberId:mid,assigned:true});
+ assert.equal((await call(path,owner,post)).status,200);assert.equal((await call(path,owner,post)).status,200);
+ assert.equal((await call(path,owner,{...post,body:'다른 요청'})).status,409);
+ let page=await call(list,member);assert.equal(page.comments.length,1);assert.equal(page.comments[0].canEdit,false);
+ let inbox=await call(alerts,member);assert.equal(inbox.unread,1);assert.equal((await call(alerts)).unread,0);
+ assert.equal((await call(`organizations/${orgId}/changes`,member)).unread,1);
+ await call(alerts,owner,{ids:[inbox.items[0].id]});assert.equal((await call(alerts,member)).unread,1);
+ await call(alerts,member,{ids:[inbox.items[0].id]});assert.equal((await call(alerts,member)).unread,0);
+ assert.equal((await call(`${path}/${post.id}`,member,{version:1,body:'침범',mentions:[]},'PATCH')).status,403);
+ assert.equal((await call(`${path}/${post.id}`,owner,{version:1,body:'수정한 결과',mentions:[mid]},'PATCH')).status,200);
+ assert.equal((await call(`${path}/${post.id}`,owner,{version:1,body:'오래된 탭',mentions:[]},'PATCH')).status,409);
+ page=await call(list,member);assert.equal(page.comments[0].edits[0].body,post.body);assert.equal(page.comments[0].version,2);
+ const reply={id:crypto.randomUUID(),target:post.target,body:'구성원 확인했습니다.',mentions:[ownerId]};
+ assert.equal((await call(path,member,reply)).status,200);assert.equal((await call(alerts)).unread,1);
+ assert.equal((await call(`${path}/${reply.id}`,owner,{version:1},'DELETE')).status,200); // manager moderation
+ assert.equal((await call(`${path}/${post.id}`,owner,{version:2},'DELETE')).status,200);
+ page=await call(list,member);assert.ok(page.comments.every((c:any)=>c.deletedAt&&c.body===''&&c.edits.length===0));
+ await call(`organizations/${orgId}/admin/assignments`,owner,{projectId:pid,memberId:mid,assigned:false});
+ assert.equal((await call(alerts,member)).items.length,0);assert.equal((await call(`organizations/${orgId}/changes`,member)).unread,0);
+ assert.equal((await call(list,member)).status,403);
+ await call(`organizations/${orgId}/admin/members/${mid}`,owner,{role:'viewer',active:true});
+ await call(`organizations/${orgId}/admin/assignments`,owner,{projectId:pid,memberId:mid,assigned:true});
+ assert.equal((await call(list,member)).canPost,false);
+ assert.equal((await call(path,member,{...reply,id:crypto.randomUUID()})).status,403);
+ const otherOrg=await create(outsider),otherPid=await project(orgId);
+ assert.equal((await call(path,owner,{...post,id:crypto.randomUUID(),target:{projectId:otherPid,type:'project',id:pid}})).status,404);
+ assert.equal((await call(`organizations/${otherOrg}/discussions/${post.id}`,outsider,{version:3},'DELETE')).status,404);
+});
+
+test('협업: 업무 배정/완료 및 실적 보완 알림은 성공한 저장에만 한 번 생성',async()=>{
+ const {orgId,pid,mid,indicatorId,input}=await outcomeCase();
+ await call(`organizations/${orgId}/admin/assignments`,owner,{projectId:pid,memberId:mid,assigned:true});
+ const task={id:crypto.randomUUID(),orgId,projectId:pid,title:'현장 명부 확인',due:'2026-10-30',ownerId:mid,status:'todo' as const},command:Command={type:'task.add',task},requestId=crypto.randomUUID();
+ const alerts=`organizations/${orgId}/notifications`;
+ assert.equal((await cmd(orgId,command,owner,0)).status,409);assert.equal((await call(alerts,member)).unread,0);
+ assert.equal((await cmd(orgId,command,owner,undefined,requestId)).status,200);assert.equal((await cmd(orgId,command,owner,undefined,requestId)).status,200);
+ assert.equal((await call(alerts,member)).items.length,1);
+ assert.equal((await cmd(orgId,{type:'task.status',projectId:pid,taskId:task.id,status:'done'},member)).status,200);
+ assert.equal((await call(alerts)).items[0].kind,'task.status');
+ const measurement={id:crypto.randomUUID(),orgId,projectId:pid,indicatorId,asOf:'2026-09-30',value:15,note:'현장 집계',evidence:{documentId:input.documentId,versionId:input.versionId},status:'pending' as const,createdAt:''};
+ assert.equal((await cmd(orgId,{type:'measurement.add',measurement:{...measurement,createdById:'forged'}} as any,member)).status,400);
+ assert.equal((await cmd(orgId,{type:'measurement.add',measurement},member)).status,200);
+ assert.equal((await load(orgId)).workspace.measurements[0].createdById,mid);
+ assert.equal((await call(alerts)).items[0].kind,'measurement.add');
+ assert.equal((await cmd(orgId,{type:'measurement.reject',projectId:pid,measurementId:measurement.id,reason:'중복 확인 필요'})).status,200);
+ assert.equal((await call(alerts,member)).items[0].kind,'measurement.reject');
+ const pulse=await call(`organizations/${orgId}/changes`,member);assert.equal(pulse.revision,(await load(orgId,member)).workspace.revision);assert.ok(!('workspace' in pulse));
+ await call(`organizations/${orgId}/admin/members/${mid}`,owner,{role:'member',active:false});
+ assert.equal((await call(`organizations/${orgId}/changes`,member)).status,403);
+});
+
+test('협업: 댓글 페이지 분할·연속 작성 제한·보관 후 읽기 전용',async()=>{
+ const orgId=await create(),pid=await project(orgId),path=`organizations/${orgId}/discussions`,list=`${path}?project=${pid}&type=project&target=${pid}`;
+ for(let i=0;i<53;i++)await env.DB.prepare('INSERT INTO project_comments(id,org_id,project_id,target_type,target_id,author_id,body,request_hash,created_at) VALUES (?,?,?,?,?,?,?,?,?)').bind(crypto.randomUUID(),orgId,pid,'project',pid,owner.userId,`댓글 ${i}`,'fixture',new Date().toISOString()).run();
+ const recent=await call(list);assert.equal(recent.comments.length,50);assert.equal(recent.comments[0].body,'댓글 3');assert.ok(recent.nextCursor);
+ const old=await call(`${list}&before=${recent.nextCursor}`);assert.equal(old.comments.length,3);assert.equal(old.nextCursor,null);
+ assert.equal((await call(path,owner,{id:crypto.randomUUID(),target:{projectId:pid,type:'project',id:pid},body:'너무 빠른 작성',mentions:[]})).status,429);
+ const state=(await load(orgId)).workspace;state.projects[0].status='archived';await env.DB.prepare('UPDATE organizations SET body=?,revision=revision+1 WHERE id=?').bind(JSON.stringify(state),orgId).run();
+ assert.equal((await call(list)).canPost,false);
+ assert.equal((await call(`${path}/${recent.comments[0].id}`,owner,{version:1},'DELETE')).status,403);
+ // Browser roles never receive grants to these private application tables.
+ await fixture.pg.exec('CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN');
+ const grants=await fixture.pg.query("SELECT has_table_privilege('anon','value_lens.project_comments','SELECT') AS comments,has_table_privilege('authenticated','value_lens.notifications','SELECT') AS notifications");
+ assert.deepEqual(grants.rows,[{comments:false,notifications:false}]);
+});

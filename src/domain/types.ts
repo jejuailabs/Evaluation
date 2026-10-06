@@ -26,6 +26,7 @@ export interface Indicator extends Scoped {
   planningSource?: PlanningSource;
 }
 export interface Measurement extends Scoped {
+  createdById?: ID;
   analysisSource?: OutcomeSource;
   indicatorId: ID; asOf: string; value: number; note: string; evidence: EvidenceRef;
   status: 'pending' | 'confirmed' | 'rejected'; createdAt: string; confirmedAt?: string;

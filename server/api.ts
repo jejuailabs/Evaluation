@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { execute } from '../src/domain/commands';
+import { organizationChanges, discussions, notifications, workflowNotifications } from './collaboration';
 import type { Command, Workspace, DocumentVersion } from '../src/domain/types';
 import { createEmptyWorkspace } from '../src/domain/workspace';
 import { authorizeCommand, commandProject, HttpError, isManager, projectAccess, requireManager, visibleWorkspace, type Actor, type Role } from './policy';
@@ -70,6 +71,7 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
   const [,organizations]=await db.batch([syncUser,memberships]);
   return json({user,organizations:organizations.results,platformAdmin:platform,initialWorkspace:requestedOrg?await result(requestedOrg):null});
  }
+ if(parts[0]==='organizations'&&parts.length===3&&parts[2]==='changes'&&method==='GET')return json(await organizationChanges(db,parts[1],user.userId));
  await syncUser.run();
  if(parts[0]==='organizations'&&parts[1]==='join'&&parts.length===2&&method==='POST')return json(await redeemJoinKey(db,user,await body(req)));
  if(parts[0]==='organizations'&&parts.length===1&&method==='POST'){
@@ -103,6 +105,9 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
  }
  if(parts[0]!=='organizations'||!parts[1])throw new HttpError(404,'주소를 찾지 못했어요.');
  const orgId=parts[1],ctx=await org(orgId),{state,actor,row}=ctx;
+ const collaboration={db,orgId,revision:row.revision,state,actor};
+ if(parts[2]==='discussions')return json(await discussions(collaboration,method,url,method==='GET'?undefined:await body(req),parts[3]));
+ if(parts[2]==='notifications')return json(await notifications(collaboration,method,url,method==='GET'?undefined:await body(req)));
  if(parts[2]==='workspace'&&method==='GET')return json({workspace:visibleWorkspace(state,actor),access:actor});
  if(parts[2]==='planning-ai'){
   requireManager(actor);
@@ -186,7 +191,7 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
    if(command.type==='document.add')command.document.versions=[canonical];else command.version=canonical;
   }
   if(command.type==='measurement.add'){
-   command.measurement.createdAt=timestamp();
+   command.measurement.createdAt=timestamp();command.measurement.createdById=actor.memberId;
    if(command.aiReceipt){
     const indicator=state.indicators.find(i=>i.id===command.measurement.indicatorId&&i.projectId===pid);
     if(!indicator)throw new HttpError(400,'프로젝트의 지표를 선택해 주세요.');
@@ -195,7 +200,7 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
   }
   let next:Workspace;try{next=execute(state,command,timestamp(),actor.memberId);}catch(e){throw new HttpError(400,(e as Error).message);}
   const encoded=JSON.stringify(next);if(new TextEncoder().encode(encoded).byteLength>1024*1024)throw new HttpError(413,'현재 단계의 조직 저장 한도에 도달했어요.');
-  const updates=await db.batch([db.prepare("UPDATE organizations SET body=?,revision=revision+1 WHERE id=? AND revision=? AND status='active'").bind(encoded,orgId,input.revision),db.prepare('INSERT INTO operations (id,org_id,actor_id,action,request_hash,created_at) SELECT ?,?,?,?,?,? WHERE changes()>0').bind(input.id,orgId,user.userId,command.type,requestHash,timestamp())]);
+  const updates=await db.batch([db.prepare("UPDATE organizations SET body=?,revision=revision+1 WHERE id=? AND revision=? AND status='active'").bind(encoded,orgId,input.revision),db.prepare('INSERT INTO operations (id,org_id,actor_id,action,request_hash,created_at) SELECT ?,?,?,?,?,? WHERE changes()>0').bind(input.id,orgId,user.userId,command.type,requestHash,timestamp()),...workflowNotifications(collaboration,command,next,input.id)]);
   if(!updates[0].meta.changes)throw new HttpError(409,'다른 사람이 먼저 저장했어요. 새로고침하고 다시 시도해 주세요.');
   return json(await result(orgId));
  }

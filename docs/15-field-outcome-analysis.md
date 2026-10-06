@@ -41,6 +41,6 @@
 
 ## 남은 큰 범위
 
-실시간 공동 작업·댓글/알림, 조직 데이터 정규화와 대량 자료 처리, 음성 회의록/STT/TTS, 구형 문서 변환, 기관별 제출 양식/HWPX 출력, 전체 관리자 운영 계정 지정과 운영 인수 검증은 남아 있다.
+댓글·앱 내 알림·25초 자동 갱신은 후속 [16 문서](16-project-collaboration.md)에서 구현했다. WebSocket 공동 편집, 조직 데이터 정규화와 대량 자료 처리, 음성 회의록/STT/TTS, 구형 문서 변환, 기관별 제출 양식/HWPX 출력, 전체 관리자 운영 계정 지정과 운영 인수 검증은 남아 있다.
 
 공식 연동 근거: [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs), [이미지 입력](https://developers.openai.com/api/docs/guides/images-vision), [PDF 파일 입력](https://developers.openai.com/api/docs/guides/file-inputs).

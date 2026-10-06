@@ -81,3 +81,12 @@ dialog .dialog-head{position:sticky;top:0;z-index:4;background:var(--surface);pa
 .evidence-pdf{display:block;width:100%;height:65vh;margin-top:24px;border:1px solid var(--line)}
 .evidence-text{font-family:inherit;font-size:16px;line-height:1.8;white-space:pre-wrap;overflow-wrap:anywhere;max-height:65vh;overflow:auto;margin-top:24px}
 .reader-layout>*,.review-row>*,.history>div>*{min-width:0}
+.discussion-layout{max-width:940px;margin:0 auto}.discussion-layout>.field{margin-bottom:16px}
+.discussion-link{display:inline-block;font-size:14px;margin:4px 12px 4px 0;white-space:nowrap}
+.thread{margin-top:28px}.thread-caption,.comment-meta{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.thread-caption{justify-content:space-between;padding:16px 0;border-bottom:1px solid var(--line)}
+.comment-list,.notification-list{list-style:none;margin:0;padding:0}.comment-card{padding:24px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+.comment-meta time,.comment-meta>span,.thread-caption small{font-size:13px;color:var(--muted)}.comment-body{white-space:pre-wrap;line-height:1.8;margin:14px 0}.mention-list{font-size:14px;color:var(--accent)}
+.comment-card .actions{margin-top:12px}.comment-card blockquote{border-left:2px solid var(--line);padding:0 16px;margin:16px 0}.comment-card blockquote p{margin-top:4px}
+.comment-compose{margin-top:28px;padding:24px}.comment-compose textarea{resize:vertical}.mention-options{display:flex;gap:12px 24px;flex-wrap:wrap;margin:16px 0}.mention-options label{display:flex;align-items:center;gap:8px}.mention-options input{width:18px;min-height:18px;height:18px}
+.notification{border:0;border-bottom:1px solid var(--line);background:var(--soft);padding:20px 16px;text-align:left;width:100%;color:inherit;border-radius:0;display:flex;flex-direction:column;gap:8px;line-height:1.7;overflow-wrap:anywhere}.notification.read{background:transparent}.notification small{font-size:13px;color:var(--muted)}.notification .status-dot{display:inline-block;margin-right:8px}.inbox-button{gap:8px}
+@media(max-width:650px){.comment-compose{padding:18px}.thread-caption{align-items:flex-start;flex-direction:column}.topbar-right{gap:8px}.topbar-right>.pill{display:none}.discussion-layout h2{font-size:25px}}
