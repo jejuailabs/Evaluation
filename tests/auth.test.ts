@@ -190,3 +190,40 @@ test('이메일 공급자 오류·발송 제한은 성공으로 표시하지 않
   assert.ok(!response.headers.getSetCookie().some(cookie=>cookie.startsWith('vl-login-return=')));
  }
 });
+
+test('발송 한도와 요청 제한을 구분하고 확인되지 않은 재시도 시간을 만들지 않음',async()=>{
+ for(const [upstreamCode,code] of [['over_email_send_rate_limit','email_delivery_limit'],['over_request_rate_limit','request_rate_limit']]){
+  const upstream:typeof fetch=async()=>Response.json({code:upstreamCode,msg:'PRIVATE_PROVIDER_DETAIL member@example.test'}, {status:429,headers:{'X-Supabase-Api-Version':'2024-01-01'}});
+  const response=await createAuthContext(emailRequest({email:user.email}),env,upstream).handle();
+  const body=await response.json() as {code:string;error:string;retryAfter?:number};
+  assert.equal(response.status,429);assert.equal(body.code,code);
+  assert.equal(body.retryAfter,undefined);assert.equal(response.headers.get('Retry-After'),null);
+  assert.ok(!body.error.includes('PRIVATE_PROVIDER_DETAIL'));assert.ok(!body.error.includes('member@example.test'));
+  assert.deepEqual(response.headers.getSetCookie(),[]);
+ }
+});
+
+test('공급자가 명시한 재시도 시간만 전달하고 잘못된 값은 버림',async()=>{
+ for(const [retryAfter,expected] of [['125',125],['not-a-time',undefined],['-1',undefined],['999999999',undefined]] as const){
+  const upstream:typeof fetch=async()=>Response.json({code:'over_request_rate_limit',msg:'Request limited'}, {status:429,headers:{'X-Supabase-Api-Version':'2024-01-01','Retry-After':retryAfter}});
+  const response=await createAuthContext(emailRequest({email:user.email}),env,upstream).handle();
+  assert.equal((await response.json() as {retryAfter?:number}).retryAfter,expected);
+  assert.equal(response.headers.get('Retry-After'),expected?String(expected):null);
+ }
+});
+
+test('메일 발송 설정 오류는 가입 자격 제한으로 안내하지 않으며 기존 인증 링크 쿠키를 덮어쓰지 않음',async()=>{
+ const fake=fakeAuth();
+ const sent=await createAuthContext(emailRequest({email:user.email}),env,fake.fetcher).handle();
+ const resend=emailRequest({email:user.email},{Cookie:cookies(sent)});
+ const upstream:typeof fetch=async()=>Response.json({code:'email_address_not_authorized',msg:'PRIVATE_PROVIDER_DETAIL'}, {status:400,headers:{'X-Supabase-Api-Version':'2024-01-01'}});
+ const rejected=await createAuthContext(resend,env,upstream).handle();
+ assert.equal(rejected.status,503);
+ assert.deepEqual(await rejected.json(),{error:'서비스의 메일 발송 설정이 아직 준비되지 않았어요.',code:'email_delivery_unavailable'});
+ assert.deepEqual(rejected.headers.getSetCookie(),[]);
+ const done=await createAuthContext(request('/auth/callback?code=good-code',{headers:{Cookie:cookies(sent)}}),env,fake.fetcher).handle();
+ assert.equal(done.status,303);assert.equal(done.headers.get('location'),'/app?mode=app#/organizations');
+ const original=fake.seen.find(x=>x.path==='/auth/v1/otp')!,exchanged=fake.seen.find(x=>x.path==='/auth/v1/token')!;
+ const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(exchanged.body.code_verifier));
+ assert.equal(Buffer.from(digest).toString('base64url'),original.body.code_challenge);
+});

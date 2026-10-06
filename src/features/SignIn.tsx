@@ -3,7 +3,7 @@ import type { Session } from '../infrastructure/api';
 import { Icon, Pill } from '../ui/shared';
 
 export function SignIn({session,invite,orgId,hash}:{session:Session|null;invite?:string;orgId:string|null;hash:string}) {
- const [email,setEmail]=useState(''),[sentTo,setSentTo]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState(''),[remaining,setRemaining]=useState(0);
+ const [email,setEmail]=useState(''),[sentTo,setSentTo]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState(''),[emailIssue,setEmailIssue]=useState(''),[remaining,setRemaining]=useState(0);
  const pending=useRef(false);
  const emailReady=session?.auth?.emailReady===true, googleReady=session?.auth?.googleReady===true;
  const returnTo=`/app${location.search}${invite?hash:orgId?(hash||'#/home'):'#/organizations'}`;
@@ -13,13 +13,14 @@ export function SignIn({session,invite,orgId,hash}:{session:Session|null;invite?
  useEffect(()=>{if(!remaining)return;const timer=setTimeout(()=>setRemaining(value=>Math.max(0,value-1)),1000);return()=>clearTimeout(timer);},[remaining]);
  async function sendEmail(event:FormEvent<HTMLFormElement>){
   event.preventDefault();if(pending.current||remaining||!emailReady)return;
-  pending.current=true;setBusy(true);setError('');
+  pending.current=true;setBusy(true);setError('');setEmailIssue('');
   try {
    const response=await fetch('/auth/email',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-Value-Lens':'1'},body:JSON.stringify({email:email.trim(),returnTo})});
-   const result=await response.json() as {error?:string;ok?:boolean};
-   if(!response.ok){if(response.status===429)setRemaining(60);throw new Error(result.error||'인증 메일을 보내지 못했어요. 다시 시도해 주세요.');}
+   const result=await response.json() as {error?:string;code?:string;ok?:boolean;retryAfter?:number};
+   const retryAfter=typeof result.retryAfter==='number'&&Number.isFinite(result.retryAfter)&&result.retryAfter>0&&result.retryAfter<=86400?Math.ceil(result.retryAfter):0;
+   if(!response.ok){setEmailIssue(result.code??'');if(response.status===429)setRemaining(retryAfter);throw new Error(result.error||'인증 메일을 보내지 못했어요. 다시 시도해 주세요.');}
    if(result.ok!==true)throw new Error('인증 메일을 보내지 못했어요. 다시 시도해 주세요.');
-   setSentTo(email.trim());setRemaining(60);
+   setSentTo(email.trim());setRemaining(retryAfter||60);
   } catch(e) { setError(e instanceof Error?e.message:'인증 메일을 보내지 못했어요. 다시 시도해 주세요.'); }
   finally {pending.current=false;setBusy(false);}
  }
@@ -37,8 +38,9 @@ export function SignIn({session,invite,orgId,hash}:{session:Session|null;invite?
   {invite&&<p className="form-hint">받은 조직 초대는 로그인한 다음 확인해요.</p>}
   {authError&&<p className="form-error" role="alert">{messages[authError]??messages.callback}</p>}
   <form className="email-auth-form" onSubmit={sendEmail}>
-   <label className="field" htmlFor="login-email"><span>이메일 주소</span><input id="login-email" name="email" type="email" autoComplete="email" inputMode="email" required maxLength={254} placeholder="내가 사용하는 이메일 주소" value={email} disabled={busy} onChange={e=>{setEmail(e.target.value);setError('');}}/></label>
+   <label className="field" htmlFor="login-email"><span>이메일 주소</span><input id="login-email" name="email" type="email" autoComplete="email" inputMode="email" required maxLength={254} placeholder="내가 사용하는 이메일 주소" value={email} disabled={busy} onChange={e=>{setEmail(e.target.value);setError('');setEmailIssue('');}}/></label>
    {error&&<p className="form-error" role="alert">{error}</p>}
+   {googleReady&&['email_delivery_limit','email_delivery_unavailable'].includes(emailIssue)&&<p className="form-hint">아래 Google로 계속하기를 이용할 수 있어요.</p>}
    <button className="button primary full" type="submit" disabled={!emailReady||busy||remaining>0}>{busy?'인증 메일을 보내고 있어요…':remaining>0?`${remaining}초 후 다시 받기`:sentTo?'인증 메일 다시 받기':'이메일로 가입·로그인'}<Icon name="arrow"/></button>
    <p className="form-hint">비밀번호 없이, 이메일로 받은 링크를 눌러 인증해요.</p>
   </form>

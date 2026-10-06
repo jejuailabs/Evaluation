@@ -89,8 +89,20 @@ export function createAuthContext(request: Request, env: AuthEnv, fetcher: typeo
   const headers = new Headers({ 'Cache-Control': 'private, no-store', 'Pragma': 'no-cache', 'Referrer-Policy': 'no-referrer' });
   const cookieMap = new Map(parseCookieHeader(request.headers.get('Cookie') ?? '').map(c => [c.name, c.value ?? '']));
   const cookieOptions = { httpOnly: true, secure: config?.secure ?? true, sameSite: 'lax' as const, path: '/' };
+  let emailRetryAfter: number | undefined;
+  const authFetch: typeof fetch = async (input, options) => {
+    const response = await fetcher(input, options);
+    const target = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
+    if (target.origin === config?.url && target.pathname === '/auth/v1/otp' && response.status === 429) {
+      // The SDK does not retain response headers. Never invent a 60-second reset for a project quota.
+      const retry = response.headers.get('Retry-After');
+      const seconds = retry && /^\d+$/.test(retry) ? Number(retry) : retry ? Math.ceil((Date.parse(retry) - Date.now()) / 1000) : NaN;
+      if (Number.isFinite(seconds) && seconds > 0 && seconds <= 86400) emailRetryAfter = seconds;
+    }
+    return response;
+  };
   const client = config ? createServerClient(config.url, config.key, {
-    global: { fetch: fetcher },
+    global: { fetch: authFetch },
     cookieOptions: { ...cookieOptions, name: config.secure ? '__Host-value-lens-auth' : 'value-lens-auth-local' },
     cookies: {
       getAll: () => Array.from(cookieMap, ([name,value]) => ({ name, value })),
@@ -125,7 +137,13 @@ export function createAuthContext(request: Request, env: AuthEnv, fetcher: typeo
       target.searchParams.set('auth_error', code);
       return redirect(`${target.pathname}${target.search}${target.hash}`);
     };
-    const emailFailure = (status:number, error:string) => finish(Response.json({error},{status}));
+    const emailFailure = (status:number, error:string, code?:string, retryAfter?:number) => {
+      // A rejected resend must not replace the verifier for a previously delivered link.
+      headers.delete('Set-Cookie');
+      return finish(Response.json({error, ...(code ? {code} : {}), ...(retryAfter ? {retryAfter} : {})}, {
+        status, headers: retryAfter ? {'Retry-After': String(retryAfter)} : undefined,
+      }));
+    };
     if (action === 'email') {
       if (request.method !== 'POST') return emailFailure(405, '이메일 인증 요청은 POST만 사용할 수 있어요.');
       if (env.AUTH_PROVIDER !== 'supabase' || !client || !config) return emailFailure(503, '이메일 로그인 연결을 준비 중이에요.');
@@ -150,7 +168,13 @@ export function createAuthContext(request: Request, env: AuthEnv, fetcher: typeo
           shouldCreateUser: true, emailRedirectTo: `${config.origin}/auth/callback`,
         } });
         if (error) {
-          if (error.status === 429) return emailFailure(429, '요청이 많아요. 잠시 후 다시 인증 메일을 요청해 주세요.');
+          if (error.status === 429 && error.code === 'over_email_send_rate_limit') {
+            return emailFailure(429, '서비스의 인증 메일 발송 한도에 도달했어요. 메일 발송 설정 확인이 필요해요.', 'email_delivery_limit', emailRetryAfter);
+          }
+          if (error.status === 429) return emailFailure(429, '인증 요청이 잠시 제한됐어요. 잠시 후 다시 시도해 주세요.', 'request_rate_limit', emailRetryAfter);
+          if (error.code === 'email_address_not_authorized') {
+            return emailFailure(503, '서비스의 메일 발송 설정이 아직 준비되지 않았어요.', 'email_delivery_unavailable');
+          }
           // Do not disclose whether an address already has an account, or upstream details.
           return emailFailure(503, '인증 메일을 보내지 못했어요. 잠시 후 다시 시도해 주세요.');
         }

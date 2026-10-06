@@ -4,6 +4,8 @@
 
 **상태: 2026-10-06, v0.6 · Vercel 배포 구조 유지. 기존 Supabase `projecthub`의 전용 `value_lens` 스키마·DB 계정·비공개 파일 저장소를 연결했고 실제 DB 연결 및 파일 업로드·다운로드·익명 접근 차단을 검증했습니다. 운영 주소는 `https://evaluation-five-xi.vercel.app`입니다. Production 환경변수 확인과 재배포로 로그인 요청의 403을 해소했고, 실제 운영 화면의 Google 버튼에서 Google 계정 로그인 화면까지 검증했습니다. 실제 계정 인증 후 복귀와 외부 사용자용 인증 메일 수신 검증은 남아 있습니다.**
 
+**이메일 발송 차단 확인:** 운영 Supabase 로그에서 `429: email rate limit exceeded`를 확인했습니다. 현재 기본 발송 한도는 프로젝트 전체 시간당 2건이며 Custom SMTP·Send Email hook이 미설정입니다. 외부 사용자용 발송 연결이 필요합니다. 발송 한도 오류를 일률적인 60초 재요청 제한으로 안내하지 않으며, 이 오류 처리 개선은 실제 메일 발송 문제 해결을 뜻하지 않습니다.
+
 ## Vercel 배포
 
 [배포 설정·환경변수·DB 준비 순서](docs/12-vercel-deployment.md)를 먼저 확인하세요. Framework는 **Other**, Root Directory는 **./**, 빌드는 **npm run build:vercel**입니다. `vercel.json`에 설정을 포함했습니다. 로컬 DB 연결은 완료했으며 Vercel 환경변수는 별도 등록해야 합니다. `npm run check:services`로 DB·이메일/Google 제공자·비공개 버킷 설정을 확인합니다. 제공자 활성 여부는 실제 로그인 성공을 대신하지 않습니다.
