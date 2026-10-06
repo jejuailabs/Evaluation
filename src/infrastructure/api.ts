@@ -3,9 +3,20 @@ import type { Actor } from '../../server/policy';
 export type Session={user:{userId:string;email:string;displayName:string}|null;organizations:{id:string;name:string;role:string;status:string}[];platformAdmin:boolean;workspaceReady?:boolean;auth?:{provider:'google'|'chatgpt';ready:boolean;emailReady?:boolean;googleReady?:boolean;status?:'unconfigured'|'available'|'unavailable'}};
 export type CloudWorkspace={workspace:Workspace;access:Actor};
 export class ApiError extends Error {constructor(public status:number,message:string){super(message);}}
-export async function api<T=any>(path:string,data?:unknown,method=data===undefined?'GET':'POST'):Promise<T>{
- const response=await fetch(`/api/${path}`,{method,credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json','X-Value-Lens':'1'},body:data===undefined?undefined:JSON.stringify(data)});
- const result:any=await response.json();if(!response.ok)throw new ApiError(response.status,result.error??'요청을 처리하지 못했어요.');return result;
+export async function api<T=any>(path:string,data?:unknown,method=data===undefined?'GET':'POST',options:{signal?:AbortSignal;timeoutMs?:number}={}):Promise<T>{
+ const controller=new AbortController();let timedOut=false;
+ const timeout=options.timeoutMs??(method==='GET'?15000:0);
+ const timer=timeout>0?setTimeout(()=>{timedOut=true;controller.abort();},timeout):undefined;
+ const cancel=()=>controller.abort();
+ options.signal?.addEventListener('abort',cancel,{once:true});
+ if(options.signal?.aborted)controller.abort();
+ try{
+  const response=await fetch(`/api/${path}`,{method,credentials:'same-origin',cache:'no-store',signal:controller.signal,headers:{'Content-Type':'application/json','X-Value-Lens':'1'},body:data===undefined?undefined:JSON.stringify(data)});
+  const result:any=await response.json();if(!response.ok)throw new ApiError(response.status,result.error??'요청을 처리하지 못했어요.');return result;
+ }catch(error){
+  if(timedOut)throw new ApiError(408,'응답이 늦어지고 있어요. 잠시 후 다시 불러와 주세요.');
+  throw error;
+ }finally{clearTimeout(timer);options.signal?.removeEventListener('abort',cancel);}
 }
 export const loadCloud=(orgId:string)=>api<CloudWorkspace>(`organizations/${encodeURIComponent(orgId)}/workspace`);
 export const sendCommand=(orgId:string,command:Command,revision:number,id:string)=>api<CloudWorkspace>(`organizations/${encodeURIComponent(orgId)}/commands`,{id,revision,command});

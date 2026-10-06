@@ -1,19 +1,30 @@
 import { useEffect, useState } from 'react';
 import App from '../App';
 import { SignIn, SignOutButton } from './SignIn';
-import { api, loadCloud, type CloudWorkspace, type Session } from '../infrastructure/api';
+import { api, type CloudWorkspace, type Session } from '../infrastructure/api';
 import { Field, Form, Icon, Pill, textValue } from '../ui/shared';
 
 const goOrg=(id:string)=>{location.href=`/app?mode=app&org=${encodeURIComponent(id)}#/home`;};
 function AccountFrame({children}:{children:React.ReactNode}){return <div className="start-shell"><header className="start-header"><a className="brand" href="/"><span className="brand-symbol">✳</span><span>가치 돋보기<small>VALUE LENS</small></span></a><a className="text-link" href="/app?mode=demo#/home">데모 보기 <Icon name="arrow"/></a></header><main className="account-main">{children}</main></div>;}
 export function Accounts(){
  const [session,setSession]=useState<Session|null>(null),[workspace,setWorkspace]=useState<CloudWorkspace|null>(null),[error,setError]=useState(''),[loading,setLoading]=useState(true);
+ const [slow,setSlow]=useState(false);
  const [hash,setHash]=useState(()=>location.hash);
  const orgId=new URLSearchParams(location.search).get('org');
  const invite=/^#\/invite\/([a-f0-9]{64})$/.exec(hash)?.[1];
  useEffect(()=>{const changed=()=>setHash(location.hash);window.addEventListener('hashchange',changed);return()=>window.removeEventListener('hashchange',changed);},[]);
- useEffect(()=>{let active=true;(async()=>{try{const s=await api<Session>('session');if(!active)return;setSession(s);if(s.user&&orgId&&s.workspaceReady!==false){const w=await loadCloud(orgId);if(active)setWorkspace(w);}}catch(e){if(active)setError((e as Error).message);}finally{if(active)setLoading(false);}})();return()=>{active=false};},[orgId]);
- if(loading)return <AccountFrame><p role="status">내 작업실을 불러오고 있어요…</p></AccountFrame>;
+ useEffect(()=>{
+  let active=true;const controller=new AbortController();
+  setLoading(true);setSlow(false);setError('');setWorkspace(null);
+  const timer=setTimeout(()=>{if(active)setSlow(true);},4000);
+  (async()=>{try{
+   const s=await api<Session&{initialWorkspace?:CloudWorkspace|null}>(orgId?`session?org=${encodeURIComponent(orgId)}`:'session',undefined,'GET',{signal:controller.signal});
+   if(!active)return;
+   setSession(s);setWorkspace(s.initialWorkspace??null);
+  }catch(e){if(active)setError((e as Error).message);}finally{if(active)setLoading(false);clearTimeout(timer);}})();
+  return()=>{active=false;clearTimeout(timer);controller.abort();};
+ },[orgId]);
+ if(loading)return <AccountFrame><section className="start-card account-narrow" aria-busy="true"><h1>작업실을 열고 있어요.</h1><p role="status" className="lede">{slow?'연결이 평소보다 오래 걸리고 있어요. 잠시만 기다려 주세요.':'내 계정과 조직 자료를 확인하고 있어요.'}</p>{slow&&<button className="button secondary" onClick={()=>location.reload()}>다시 불러오기</button>}</section></AccountFrame>;
  if(error)return <AccountFrame><h1>작업실을 열지 못했어요.</h1><p className="lede" role="alert">{error}</p><div className="account-actions"><button className="button primary" onClick={()=>location.reload()}>다시 불러오기</button><a className="button secondary" href="/app?mode=app#/organizations">조직 목록</a></div></AccountFrame>;
  if(!session?.user)return <AccountFrame><SignIn session={session} invite={invite} orgId={orgId} hash={hash}/></AccountFrame>;
  if(session.workspaceReady===false)return <AccountFrame><section className="start-card account-narrow"><Pill>이메일 확인 완료</Pill><h1>로그인을 마쳤어요.</h1><p className="lede">조직 작업실 연결을 준비 중이에요. 준비가 끝나면 조직을 만들고 프로젝트를 시작할 수 있어요.</p><p className="footnote">로그인 계정: {session.user.email}</p><div className="account-actions"><button className="button primary" onClick={()=>location.reload()}>다시 확인하기</button><SignOutButton session={session}/></div></section></AccountFrame>;

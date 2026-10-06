@@ -36,15 +36,20 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
  if(parts[0]==='session'&&method==='GET'&&!identity)return json({user:null,organizations:[],platformAdmin:false});
  if(!identity)throw new HttpError(401,'로그인이 필요해요.');
  const user={...identity,email:identity.email.trim().toLowerCase()}, db=env.DB;
- await db.prepare('INSERT INTO users (id,email,name,created_at) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET email=excluded.email,name=excluded.name').bind(user.userId,user.email,user.displayName.slice(0,120),timestamp()).run();
- const memberships=async()=> (await db.prepare('SELECT o.id,o.name,o.status,m.role FROM organizations o JOIN memberships m ON m.org_id=o.id WHERE m.user_id=? AND m.active=1 ORDER BY o.created_at').bind(user.userId).all()).results;
+ const syncUser=db.prepare('INSERT INTO users (id,email,name,created_at) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET email=excluded.email,name=excluded.name').bind(user.userId,user.email,user.displayName.slice(0,120),timestamp());
+ const memberships=db.prepare('SELECT o.id,o.name,o.status,m.role FROM organizations o JOIN memberships m ON m.org_id=o.id WHERE m.user_id=? AND m.active=1 ORDER BY o.created_at').bind(user.userId);
  async function org(orgId:string){
-  const row=await db.prepare('SELECT o.*,m.id AS member_id,m.role FROM organizations o JOIN memberships m ON m.org_id=o.id WHERE o.id=? AND m.user_id=? AND m.active=1').bind(orgId,user.userId).first<Org>();
+  // One consistent transaction; all three reads remain scoped to active membership.
+  const [organization,assignments,members]=await db.batch([
+   db.prepare('SELECT o.*,m.id AS member_id,m.role FROM organizations o JOIN memberships m ON m.org_id=o.id WHERE o.id=? AND m.user_id=? AND m.active=1').bind(orgId,user.userId),
+   db.prepare('SELECT p.project_id FROM project_members p JOIN memberships m ON m.id=p.member_id AND m.org_id=p.org_id WHERE p.org_id=? AND m.user_id=? AND m.active=1').bind(orgId,user.userId),
+   db.prepare('SELECT m.id,u.name,m.role FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.org_id=? AND EXISTS(SELECT 1 FROM memberships a WHERE a.org_id=m.org_id AND a.user_id=? AND a.active=1)').bind(orgId,user.userId),
+  ]);
+  const row=organization.results[0] as Org|undefined;
   if(!row)throw new HttpError(403,'이 조직에 접근할 권한이 없어요.');if(row.status!=='active')throw new HttpError(403,'일시 정지된 조직이에요. 서비스 관리자에게 문의해 주세요.');
-  const assignments=(await db.prepare('SELECT project_id FROM project_members WHERE org_id=? AND member_id=?').bind(orgId,row.member_id).all<{project_id:string}>()).results;
-  const actor:Actor={userId:user.userId,memberId:row.member_id,role:row.role,projects:assignments.map(p=>p.project_id)};
+  const actor:Actor={userId:user.userId,memberId:row.member_id,role:row.role,projects:assignments.results.map(p=>p.project_id as string)};
   const state=JSON.parse(row.body) as Workspace;state.revision=row.revision;state.organization.name=row.name;
-  state.members=(await db.prepare('SELECT m.id,u.name,m.role FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.org_id=?').bind(orgId).all<{id:string;name:string;role:Role}>()).results.map(m=>({...m,role:roles[m.role]}));
+  state.members=members.results.map(m=>({id:m.id as string,name:m.name as string,role:roles[m.role as Role]}));
   return {row,actor,state};
  }
  async function result(orgId:string){const ctx=await org(orgId);return {workspace:visibleWorkspace(ctx.state,ctx.actor),access:ctx.actor};}
@@ -57,7 +62,13 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
   const results=await db.batch([gate,...statements.map(s=>s),db.prepare('UPDATE organizations SET revision=revision+1 WHERE id=? AND EXISTS(SELECT 1 FROM operations WHERE id=?)').bind(ctx.row.id,nonce)]);
   if(!results[0].meta.changes)throw new HttpError(409,'다른 사람이 변경했어요. 새로고침 후 다시 시도해 주세요.');
  }
- if(parts[0]==='session'&&method==='GET')return json({user,organizations:await memberships(),platformAdmin:platform});
+ if(parts[0]==='session'&&method==='GET'){
+  const requestedOrg=url.searchParams.get('org');
+  if(requestedOrg&&requestedOrg.length>100)throw new HttpError(400,'조직 주소를 확인해 주세요.');
+  const [,organizations]=await db.batch([syncUser,memberships]);
+  return json({user,organizations:organizations.results,platformAdmin:platform,initialWorkspace:requestedOrg?await result(requestedOrg):null});
+ }
+ await syncUser.run();
  if(parts[0]==='organizations'&&parts.length===1&&method==='POST'){
   const input=z.object({name:orgName}).strict().parse(await body(req));
   const count=await db.prepare("SELECT COUNT(*) AS n FROM memberships WHERE user_id=? AND role='owner'").bind(user.userId).first<{n:number}>();if((count?.n??0)>=20)throw new HttpError(429,'만들 수 있는 조직 수를 초과했어요.');
@@ -89,7 +100,7 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
  }
  if(parts[0]!=='organizations'||!parts[1])throw new HttpError(404,'주소를 찾지 못했어요.');
  const orgId=parts[1],ctx=await org(orgId),{state,actor,row}=ctx;
- if(parts[2]==='workspace'&&method==='GET')return json(await result(orgId));
+ if(parts[2]==='workspace'&&method==='GET')return json({workspace:visibleWorkspace(state,actor),access:actor});
  if(parts[2]==='planning-ai'){
   requireManager(actor);
   if(method==='GET')return json({ready:aiReady(env),limit:20});

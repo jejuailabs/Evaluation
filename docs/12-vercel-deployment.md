@@ -101,6 +101,8 @@ Supabase Auth → Providers에서 Google OAuth를 설정합니다. Google Cloud�
 
 ## 검증
 
+작업실 서버 함수는 Supabase DB와 같은 서울 `icn1`에서 실행하도록 `vercel.json`과 Nitro 함수 설정에 지정합니다. 로그인한 작업실의 초기 요청은 `/api/session?org=<조직 ID>` 하나로 세션·조직 목록·권한에 맞는 작업실 자료를 받습니다. 인증 확인은 요청마다 서버에서 수행하며, 비로그인 화면에 필요한 제공자 설정 조회는 로그인된 작업실 응답을 지연시키지 않습니다. 초기 로딩은 DB 트랜잭션 2회이며, 일반 workspace 조회에서도 같은 조직을 중복 조회하지 않습니다. 읽기 요청은 15초 제한과 화면 이동 취소를 지원하고, 변경 요청에는 이 읽기 제한을 적용하지 않습니다. `Server-Timing` 헤더에서 인증과 데이터 조회 시간을 구분해 확인할 수 있습니다.
+
 ```sh
 npm run typecheck
 npm test

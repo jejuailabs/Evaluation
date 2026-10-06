@@ -37,6 +37,29 @@ test('인증된 신규 계정은 소속 조직 없이 로그인하며 조직 정
  assert.equal((await load(organizationId,newcomer)).status,403);
 });
 
+test('작업실 첫 로딩은 한 요청·두 DB 트랜잭션으로 끝내며 조직과 프로젝트 권한을 유지',async()=>{
+ const orgId=await create(),pid=await project(orgId),mid=await join(orgId);
+ const originalBatch=env.DB.batch.bind(env.DB);let transactions=0,statements=0;
+ env.DB.batch=async queries=>{transactions++;statements+=queries.length;return originalBatch(queries);};
+ const boot=await call(`session?org=${orgId}`);
+ assert.equal(boot.status,200);assert.equal(boot.user.userId,owner.userId);
+ assert.equal(boot.initialWorkspace.workspace.organization.id,orgId);
+ assert.equal(boot.initialWorkspace.workspace.projects[0].id,pid);
+ assert.equal(transactions,2);assert.equal(statements,5);
+ env.DB.batch=originalBatch;
+ const hidden=await call(`session?org=${orgId}`,member);
+ assert.equal(hidden.status,200);assert.deepEqual(hidden.initialWorkspace.workspace.projects,[]);
+ await call(`organizations/${orgId}/admin/assignments`,owner,{projectId:pid,memberId:mid,assigned:true});
+ assert.equal((await call(`session?org=${orgId}`,member)).initialWorkspace.workspace.projects[0].id,pid);
+ assert.equal((await call(`session?org=${orgId}`,outsider)).status,403);
+ const anonymous=await call(`session?org=${orgId}`,null);
+ assert.equal(anonymous.user,null);assert.equal(anonymous.initialWorkspace,undefined);
+ await call(`organizations/${orgId}/admin/members/${mid}`,owner,{role:'member',active:false});
+ assert.equal((await call(`session?org=${orgId}`,member)).status,403);
+ await env.DB.prepare("UPDATE organizations SET status='suspended' WHERE id=?").bind(orgId).run();
+ assert.equal((await call(`session?org=${orgId}`)).status,403);
+});
+
 function directStore(){
  const objects=new Map<string,number>();
  env.BUCKET={put:async()=>{},get:async()=>null,delete:async key=>{objects.delete(key);},

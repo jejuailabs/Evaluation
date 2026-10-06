@@ -8,6 +8,7 @@ const root = new URL('../.vercel/output/', import.meta.url);
 const read = path => JSON.parse(readFileSync(new URL(path,root),'utf8'));
 const config=read('config.json'),fn=read('functions/__server.func/.vc-config.json');
 assert.equal(config.version,3);assert.equal(fn.runtime,'nodejs22.x');assert.ok(fn.maxDuration>=60);
+assert.deepEqual(fn.regions,['icn1']);
 assert.ok(config.routes.some(r=>r.dest==='/__server'));
 const {default:handler}=await import(new URL('functions/__server.func/index.mjs',root).href);
 const landingPage=await handler.fetch(new Request('https://evaluation.example/'));
