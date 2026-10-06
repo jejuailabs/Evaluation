@@ -3,7 +3,7 @@ import { Field, Form, Icon, Pill, textValue } from '../ui/shared';
 
 export function Start({ workspace, create }: { workspace: Workspace | null; create: (organization: string, member: string) => void }) {
   return <div className="start-shell">
-    <header className="start-header"><a className="brand" href="https://value-lens-studio.naggu1999.chatgpt.site/"><span className="brand-symbol">✳</span><span>가치 돋보기<small>VALUE LENS</small></span></a><a className="text-link" href="?mode=demo#/home">데모 보기 <Icon name="arrow" size={17}/></a></header>
+    <header className="start-header"><a className="brand" href="/"><span className="brand-symbol">✳</span><span>가치 돋보기<small>VALUE LENS</small></span></a><a className="text-link" href="?mode=demo#/home">데모 보기 <Icon name="arrow" size={17}/></a></header>
     <main className="start-main">
       <div className="start-copy"><p className="eyebrow">우리 조직으로 시작하기</p><h1>첫 프로젝트부터,<br/>우리의 기록으로.</h1><p className="start-lede">조직 이름을 정하고, 시작할 일을 하나 만들어 보세요. 업무와 자료를 모으는 동안 성과도 함께 쌓여요.</p>
         <ol className="start-steps"><li><span>01</span><div><strong>우리 조직을 준비해요</strong><p>조직 이름과 내 이름만 입력해요.</p></div></li><li><span>02</span><div><strong>첫 프로젝트를 만들어요</strong><p>할 일, 기간, 예산부터 정해요.</p></div></li><li><span>03</span><div><strong>진행하며 기록을 모아요</strong><p>업무·자료·예산·성과를 한곳에서 봐요.</p></div></li></ol>

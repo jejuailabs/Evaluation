@@ -8,20 +8,20 @@ export type AuthEnv = {
   SUPABASE_PUBLISHABLE_KEY?: string;
   APP_URL?: string;
 };
-const fallback = '/?mode=app#/organizations';
+const fallback = '/app?mode=app#/organizations';
 const returnCookie = 'vl-login-return';
 
 export function safeReturnTo(value: string | null | undefined): string {
   if (!value || value.length > 2000 || !value.startsWith('/') || value.startsWith('//') || /[\\\x00-\x20]/.test(value)) return fallback;
   try {
     const url = new URL(value, 'https://value-lens.invalid');
-    if (url.origin !== 'https://value-lens.invalid' || url.pathname !== '/') return fallback;
+    if (url.origin !== 'https://value-lens.invalid' || !['/', '/app', '/app/'].includes(url.pathname)) return fallback;
     // Only return to the workspace, never loop through another auth endpoint.
     const params = new URLSearchParams({ mode: 'app' });
     const org = url.searchParams.get('org');
     if (org && /^[a-zA-Z0-9-]{1,100}$/.test(org)) params.set('org', org);
     const hash = /^#\/[a-zA-Z0-9/_-]*$/.test(url.hash) ? url.hash : '#/organizations';
-    return `/?${params}${hash}`;
+    return `/app?${params}${hash}`;
   } catch { return fallback; }
 }
 
@@ -87,7 +87,7 @@ export function createAuthContext(request: Request, env: AuthEnv, fetcher: typeo
   }
   async function handle(): Promise<Response> {
     const url = new URL(request.url), action = url.pathname.split('/').at(-1);
-    const failure = (code:string) => redirect(`/?mode=app&auth_error=${code}#/start`);
+    const failure = (code:string) => redirect(`/app?mode=app&auth_error=${code}#/start`);
     if (env.AUTH_PROVIDER !== 'supabase' || !client || !config) return failure('configuration');
     if (url.origin !== config.origin) return finish(Response.json({error:'등록된 서비스 주소에서 로그인해 주세요.'},{status:403}));
     try {

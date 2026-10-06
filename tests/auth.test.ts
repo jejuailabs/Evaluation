@@ -37,8 +37,8 @@ test('Google 설정은 명시적 전환·공개 키·안전한 서비스 URL을 
  assert.equal(authStatus(env).ready,true);
  assert.equal(authStatus({...env,SUPABASE_PUBLISHABLE_KEY:'sb_secret_do-not-use'}).ready,false);
  assert.equal(authStatus({...env,APP_URL:'https://evil.test/path'}).ready,false);
- for(const bad of ['https://evil.test','//evil.test','/\\evil.test','/auth/google','/\n/evil.test'])assert.equal(safeReturnTo(bad),'/?mode=app#/organizations');
- assert.equal(safeReturnTo('/?mode=start&org=abc#/home'),'/?mode=app&org=abc#/home');
+ for(const bad of ['https://evil.test','//evil.test','/\\evil.test','/auth/google','/\n/evil.test','/app/evil','/app%2f..%2fauth/google'])assert.equal(safeReturnTo(bad),'/app?mode=app#/organizations');
+ for(const path of ['/', '/app', '/app/'])assert.equal(safeReturnTo(`${path}?mode=start&org=abc#/home`),'/app?mode=app&org=abc#/home');
 });
 
 test('확인된 이메일과 서버 검증 사용자만 계정으로 사용하며 사용자 메타데이터로 권한을 만들지 않음',()=>{
@@ -57,7 +57,7 @@ test('공식 SDK PKCE 로그인: Google 지정, verifier 쿠키, 코드 교환, 
  assert.equal(target.searchParams.get('code_challenge_method'),'s256');
  assert.ok(target.searchParams.get('code_challenge'));
  for(const cookie of start.headers.getSetCookie()){assert.match(cookie,/HttpOnly/);assert.match(cookie,/Secure/);assert.match(cookie,/SameSite=Lax/i);}
- assert.equal(finish.headers.get('location'),'/?mode=app&org=org-one#/invite/abc');
+ assert.equal(finish.headers.get('location'),'/app?mode=app&org=org-one#/invite/abc');
  assert.ok(fake.seen.some(x=>x.path==='/auth/v1/user'));
  const exchanged=fake.seen.find(x=>x.path==='/auth/v1/token')!;
  const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(exchanged.body.code_verifier));

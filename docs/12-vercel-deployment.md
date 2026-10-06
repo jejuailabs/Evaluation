@@ -62,7 +62,7 @@ Supabase Auth → Providers에서 Google OAuth를 설정합니다. Google Cloud�
 
 ## 기존 배포/데이터와 범위
 
-- `*.chatgpt.site`는 이전 Sites 배포입니다. 이번 GitHub 푸시는 그 배포나 DB를 변경하지 않습니다. Vercel 배포 성공 후 랜딩의 시작/데모 링크를 새 주소로 변경해야 합니다.
+- `*.chatgpt.site`는 이전 Sites 배포입니다. 이번 GitHub 푸시는 그 배포나 DB를 변경하지 않습니다. 현재 저장소에는 랜딩을 함께 포함하며 새 Vercel 도메인의 `/`가 소개, `/app?mode=demo#/home`이 데모, `/app?mode=start#/start`가 로그인·조직 시작입니다. 소개와 작업실 사이의 이동은 같은 도메인 안에서 이뤄집니다. 이전 `/?mode=…` 북마크도 유지합니다.
 - 기존 D1/R2 데이터는 PostgreSQL/Storage로 **자동 복사하지 않습니다**. 실제 사용 데이터가 있으면 읽기 전용 내보내기, 계정 ID 매핑, 파일 개수·크기·버전 검증 후 별도 이관합니다. DB 스키마 전환으로 사용자 데이터를 추측해 합치지 않습니다.
 - `drizzle/`, `build/`, `.openai/`, 기존 Sites 스크립트는 이전 환경의 참고 자료입니다. 현재 Vercel 빌드에서 호출하지 않습니다. 새 DB에는 `db:migrate`를 사용합니다.
 - 브라우저 데모 데이터는 origin별로 분리됩니다. Sites에서 남긴 데모 기록은 새 Vercel 주소로 자동 이전되지 않습니다.

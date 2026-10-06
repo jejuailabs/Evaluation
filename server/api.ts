@@ -216,7 +216,7 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
    const token=uuid().replaceAll('-','')+uuid().replaceAll('-',''),digest=await hash(token),expiresAt=new Date(Date.now()+7*86400000).toISOString();
    const activeCount=await db.prepare("SELECT COUNT(*) AS n FROM invitations WHERE org_id=? AND status='pending' AND expires_at>?").bind(orgId,timestamp()).first<{n:number}>();if((activeCount?.n??0)>=100)throw new HttpError(429,'사용하지 않은 초대를 먼저 취소해 주세요.');
    await adminWrite(ctx,[db.prepare(`INSERT INTO invitations (id,org_id,email,role,token_hash,status,expires_at,created_by,created_at) SELECT ?,?,?,?,?, 'pending',?,?,? WHERE ${guard}`).bind(uuid(),orgId,input.email.toLowerCase(),input.role,digest,expiresAt,user.userId,timestamp(),orgId,row.revision)],'구성원 초대 생성');
-   return json({url:`${url.origin}/?mode=app#/invite/${token}`,expiresAt});
+   return json({url:`${url.origin}/app?mode=app#/invite/${token}`,expiresAt});
   }
   if(parts[3]==='invitations'&&parts[4]&&method==='DELETE'){
    await adminWrite(ctx,[db.prepare(`UPDATE invitations SET status='revoked' WHERE id=? AND org_id=? AND status='pending' AND ${guard}`).bind(parts[4],orgId,orgId,row.revision)],'초대 취소');return json({ok:true});
