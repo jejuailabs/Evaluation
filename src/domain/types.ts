@@ -1,6 +1,6 @@
 export type ID = string;
 export type TaskStatus = 'todo' | 'doing' | 'done';
-export type ExpenseStatus = 'planned' | 'confirmed' | 'paid';
+export type ExpenseStatus = 'planned' | 'submitted' | 'returned' | 'confirmed' | 'paid' | 'cancelled';
 export interface Scoped { id: ID; orgId: ID; projectId: ID }
 export interface Member { id: ID; name: string; role: string }
 export interface Project { id: ID; orgId: ID; name: string; purpose: string; start: string; end: string; ownerId: ID; budget: number; category: string; status?: 'planning'|'active'|'completed'|'archived'; closeNote?: string }
@@ -9,7 +9,13 @@ export interface DocumentVersion { id: ID; name: string; size: number; createdAt
 export interface Document extends Scoped { title: string; versions: DocumentVersion[] }
 export interface EvidenceRef { documentId: ID; versionId: ID }
 export interface PlanningSource { evidence: EvidenceRef; documentName: string; location: string; quote: string; method: 'manual'|'ai'; reviewedAt: string }
-export interface Expense extends Scoped { title: string; amount: number; date: string; ownerId: ID; status: ExpenseStatus; evidence?: EvidenceRef }
+export interface BudgetLine extends Scoped { name:string; fundingSource:string; allocated:number; changes:{at:string;actorId:ID;reason:string;previous:{name:string;fundingSource:string;allocated:number}}[] }
+export interface ExpensePayment {id:ID;amount:number;date:string;note:string;evidence:EvidenceRef;recordedAt:string;actorId:ID;voided?:{at:string;actorId:ID;reason:string}}
+export interface ExpenseFields {title:string;amount:number;date:string;ownerId:ID;evidence?:EvidenceRef;budgetLineId?:ID;description?:string}
+export interface ExpenseHistory {id:ID;at:string;actorId:ID;action:string;reason:string;status:ExpenseStatus;previous?:ExpenseFields}
+export interface Expense extends Scoped, ExpenseFields { status: ExpenseStatus; workflowVersion?:1; requestedById?:ID; history?:ExpenseHistory[]; payments?:ExpensePayment[] }
+export interface ExpenseSnapshot extends Expense {projectName:string;ownerName:string;budgetLineName:string;fundingSource:string;periodSpent:number;periodPaid:number;outstanding:number}
+export interface FinanceSnapshot {expenses:ExpenseSnapshot[];start:string;end:string}
 export interface Indicator extends Scoped {
   name: string; unit: string; target: number | null; forecast: number | null;
   forecastNote: string; definition: string; source: string; sourceUrl?: string;
@@ -31,12 +37,13 @@ export interface Report extends Scoped {
   completedTasks: number; totalTasks: number; pendingMeasurements: number;
   evidence: { title: string; versionId: ID; name: string }[]; note: string;
   activities?: {title:string;date:string;body:string}[];
+  finance?:FinanceSnapshot;
 }
 export interface AnnualPlan {id:ID;orgId:ID;year:number;title:string;purpose:string;budget:number;status:'draft'|'active'|'closed';version:number;changes:{at:string;reason:string;previous:{title:string;purpose:string;budget:number}}[]}
 export interface AnnualGoal {id:ID;orgId:ID;planId:ID;name:string;unit:string;target:number|null;definition:string;direction:'higher'|'lower';aggregation:'sum'|'separate';linkIds:ID[];deduplication:string;version:number;changes:{at:string;reason:string;previous:Omit<AnnualGoal,'changes'>}[]}
 export interface Activity extends Scoped {title:string;body:string;date:string;ownerId:ID;taskId?:ID;indicatorIds:ID[];evidence:EvidenceRef[];documentId:ID;createdAt:string}
 export interface GoalSummary {id:ID;name:string;unit:string;target:number|null;actual:number|null;forecast:number|null;rate:number|null;definition:string;warning:string;metrics:(MetricSummary & {projectName:string})[]}
-export interface AnnualReport {id:ID;orgId:ID;planId:ID;title:string;year:number;start:string;end:string;createdAt:string;planVersion:number;purpose:string;note:string;goals:GoalSummary[];budget:number;allocated:number;spent:number;paid:number;pending:number;projects:{id:ID;name:string;owner:string;status:string;allocated:number;spent:number;paid:number;done:number;tasks:number}[];quarters:{label:string;spent:number;goals:{name:string;actual:number|null;unit:string}[]}[]}
+export interface AnnualReport {id:ID;orgId:ID;planId:ID;title:string;year:number;start:string;end:string;createdAt:string;planVersion:number;purpose:string;note:string;goals:GoalSummary[];budget:number;allocated:number;spent:number;paid:number;pending:number;projects:{id:ID;name:string;owner:string;status:string;allocated:number;spent:number;paid:number;done:number;tasks:number}[];quarters:{label:string;spent:number;goals:{name:string;actual:number|null;unit:string}[]}[];finance?:FinanceSnapshot}
 export interface AuditEvent { id: ID; projectId: ID; action: string; at: string }
 export interface Workspace {
   schemaVersion: 1; revision: number;
@@ -44,6 +51,7 @@ export interface Workspace {
   projects: Project[]; tasks: Task[]; documents: Document[]; expenses: Expense[];
   indicators: Indicator[]; measurements: Measurement[]; reports: Report[]; events: AuditEvent[];
   annualPlans?:AnnualPlan[]; annualGoals?:AnnualGoal[]; annualReports?:AnnualReport[]; activities?:Activity[];
+  budgetLines?:BudgetLine[];
 }
 export type Command =
   | { type: 'project.add'; project: Project }
@@ -54,6 +62,13 @@ export type Command =
   | { type: 'expense.add'; expense: Expense }
   | { type: 'expense.status'; projectId: ID; expenseId: ID; status: ExpenseStatus }
   | { type: 'expense.evidence'; projectId: ID; expenseId: ID; evidence: EvidenceRef }
+  | { type:'budget.line.save'; line:Omit<BudgetLine,'changes'>; reason:string }
+  | { type:'expense.update'; projectId:ID; expenseId:ID; fields:ExpenseFields; reason:string }
+  | { type:'expense.submit'; projectId:ID; expenseId:ID }
+  | { type:'expense.review'; projectId:ID; expenseId:ID; decision:'confirmed'|'returned'; reason:string }
+  | { type:'expense.cancel'; projectId:ID; expenseId:ID; reason:string }
+  | { type:'expense.pay'; projectId:ID; expenseId:ID; payment:Pick<ExpensePayment,'id'|'amount'|'date'|'note'|'evidence'> }
+  | { type:'expense.payment.void'; projectId:ID; expenseId:ID; paymentId:ID; reason:string }
   | { type: 'indicator.add'; indicator: Indicator }
   | { type: 'measurement.add'; measurement: Measurement }
   | { type: 'measurement.confirm'; projectId: ID; measurementId: ID }

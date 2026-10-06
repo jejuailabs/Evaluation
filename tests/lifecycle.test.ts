@@ -64,7 +64,10 @@ test('현장 기록은 버전이 있는 증빙 원본과 함께 저장하고 보
  assert.throws(()=>execute(s,{type:'activity.add',activity:{...a,id:'bad',evidence:[{documentId:'d3',versionId:'v3'}]}}),/같은 프로젝트/);
 });
 test('사업 완료는 남은 일과 검토를 확인하고 완료 후 변경을 막으며 재개 가능',()=>{
- let s=createSeed();const p=s.projects[0];assert.throws(()=>execute(s,{type:'project.update',project:{...p,status:'completed',closeNote:'마무리'},reason:'종료'}),/남은 업무/);
+ let s=createSeed();const p=s.projects[0];assert.throws(()=>execute(s,{type:'project.update',project:{...p,status:'completed',closeNote:'마무리'},reason:'종료'}),/남은 집행/);
+ s=execute(s,{type:'expense.cancel',projectId:p.id,expenseId:'e3',reason:'남은 예정 비용 취소'});
+ s=execute(s,{type:'expense.pay',projectId:p.id,expenseId:'e2',payment:{id:'close-payment',amount:4800000,date:'2026-09-30',note:'정산 완료',evidence:{documentId:'d2',versionId:'v2'}}});
+ assert.throws(()=>execute(s,{type:'project.update',project:{...p,status:'completed',closeNote:'마무리'},reason:'종료'}),/남은 업무/);
  for(const t of s.tasks.filter(t=>t.projectId===p.id))s=execute(s,{type:'task.status',projectId:p.id,taskId:t.id,status:'done'});
  s=execute(s,{type:'measurement.reject',projectId:p.id,measurementId:'r4',reason:'추가 확인 필요'});
  assert.throws(()=>execute(s,{type:'project.update',project:{...p,status:'completed',closeNote:'마무리'},reason:'종료'}),/보고서/);

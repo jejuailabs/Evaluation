@@ -26,6 +26,45 @@ async function project(orgId:string){const w=await load(orgId);const id=crypto.r
 async function invite(orgId:string,role='member'){const r=await call(`organizations/${orgId}/admin/invitations`,owner,{email:member.email,role});assert.equal(r.status,200);return r.url.split('/invite/')[1];}
 async function join(orgId:string,role='member'){const token=await invite(orgId,role);const accepted=await call('invitations/accept',member,{token});assert.equal(accepted.status,200);const w=await load(orgId,member);return w.access.memberId as string;}
 
+test('집행 협업: 담당자 요청·보완·재요청과 관리자 승인·부분 지급을 서버 권한으로 구분',async()=>{
+ const orgId=await create(),pid=await project(orgId),mid=await join(orgId),ownerMid=(await load(orgId)).access.memberId;
+ await call(`organizations/${orgId}/admin/assignments`,owner,{projectId:pid,memberId:mid,assigned:true});
+ const line:Command={type:'budget.line.save',line:{id:'activities',orgId,projectId:pid,name:'현장 활동',fundingSource:'자체 재원',allocated:800000},reason:''};
+ assert.equal((await cmd(orgId,line,member)).status,403);assert.equal((await cmd(orgId,line)).status,200);
+ await cmd(orgId,{type:'activity.add',activity:{id:crypto.randomUUID(),orgId,projectId:pid,title:'견적과 지급 확인',body:'검증용 가상 자료',date:'2026-09-20',ownerId:mid,indicatorIds:[],evidence:[]}},member);
+ const doc=(await load(orgId)).workspace.documents[0],evidence={documentId:doc.id,versionId:doc.versions[0].id};
+ const expense={id:'req',orgId,projectId:pid,title:'활동 재료',amount:600000,date:'2026-09-20',ownerId:mid,status:'planned' as const,budgetLineId:'activities',evidence};
+ assert.equal((await cmd(orgId,{type:'expense.add',expense:{...expense,ownerId:ownerMid}},member)).status,403);
+ assert.equal((await cmd(orgId,{type:'expense.add',expense},member)).status,200);
+ const before=(await load(orgId)).workspace;assert.equal(before.expenses[0].requestedById,mid);
+ assert.equal((await cmd(orgId,{type:'expense.status',projectId:pid,expenseId:'req',status:'confirmed'})).status,400);
+ const submit:Command={type:'expense.submit',projectId:pid,expenseId:'req'};assert.equal((await cmd(orgId,submit,member)).status,200);
+ const review:Command={type:'expense.review',projectId:pid,expenseId:'req',decision:'returned',reason:'수량 기재'};
+ assert.equal((await cmd(orgId,review,member)).status,403);assert.equal((await cmd(orgId,review)).status,200);
+ assert.equal((await cmd(orgId,{type:'expense.update',projectId:pid,expenseId:'req',fields:{title:'재료 30개',amount:600000,date:'2026-09-20',ownerId:mid,evidence,budgetLineId:'activities'},reason:'단가·수량 확인'},member)).status,200);
+ assert.equal((await cmd(orgId,submit,member)).status,200);assert.equal((await cmd(orgId,{...review,decision:'confirmed',reason:'견적 확인'})).status,200);
+ assert.equal((await cmd(orgId,{type:'expense.cancel',projectId:pid,expenseId:'req',reason:'취소'},member)).status,403);
+ const payment:Command={type:'expense.pay',projectId:pid,expenseId:'req',payment:{id:'payment',amount:200000,date:'2026-10-01',note:'가상 이체',evidence}};
+ assert.equal((await cmd(orgId,payment,member)).status,403);
+ const revision=(await load(orgId)).workspace.revision,operation=crypto.randomUUID();assert.equal((await cmd(orgId,payment,owner,revision,operation)).status,200);assert.equal((await cmd(orgId,payment,owner,revision,operation)).status,200);
+ const paid=(await load(orgId)).workspace;assert.equal(paid.expenses[0].payments.length,1);assert.equal(paid.expenses[0].payments[0].actorId,ownerMid);assert.equal(paid.expenses[0].status,'confirmed');
+ const forged={type:'expense.pay',projectId:pid,expenseId:'req',payment:{...payment.payment,id:'forged',actorId:mid}};
+ assert.equal((await call(`organizations/${orgId}/commands`,owner,{id:crypto.randomUUID(),revision:paid.revision,command:forged})).status,400);
+ assert.equal((await cmd(orgId,{type:'report.create',projectId:pid,asOf:'2026-10-05',periodStart:'2026-10-01',note:'월별 지급'})).status,200);
+ const report=(await load(orgId)).workspace.reports[0];assert.equal(report.budget.spent,0);assert.equal(report.budget.paid,200000);assert.equal(report.finance.expenses[0].periodPaid,200000);
+ await call(`organizations/${orgId}/admin/members/${mid}`,owner,{role:'viewer',active:true});assert.equal((await cmd(orgId,submit,member)).status,403);
+});
+
+test('예산 세목도 미배정 프로젝트에는 보이지 않고 타인 지출 변경은 거부',async()=>{
+ const orgId=await create(),pid=await project(orgId),mid=await join(orgId);const ownerMid=(await load(orgId)).access.memberId;
+ await cmd(orgId,{type:'budget.line.save',line:{id:'private-line',orgId,projectId:pid,name:'비공개 사업비',fundingSource:'사업 재원',allocated:1000000},reason:''});
+ assert.deepEqual((await load(orgId,member)).workspace.budgetLines,[]);
+ await call(`organizations/${orgId}/admin/assignments`,owner,{projectId:pid,memberId:mid,assigned:true});assert.equal((await load(orgId,member)).workspace.budgetLines.length,1);
+ await cmd(orgId,{type:'expense.add',expense:{id:'other-request',orgId,projectId:pid,title:'관리자 요청',amount:100,date:'2026-09-30',ownerId:ownerMid,status:'planned'}});
+ assert.equal((await cmd(orgId,{type:'expense.cancel',projectId:pid,expenseId:'other-request',reason:'변경'},member)).status,403);
+ assert.equal((await cmd(orgId,{type:'expense.submit',projectId:pid,expenseId:'other-request'},outsider)).status,403);
+});
+
 test('문서 AI 설계는 관리자·조직·원본 버전·설정·호출 한도를 검사하며 자동 실적을 만들지 않음',async()=>{
  const orgId=await create(),pid=await project(orgId);await join(orgId);
  await cmd(orgId,{type:'activity.add',activity:{id:crypto.randomUUID(),orgId,projectId:pid,title:'계획 메모',body:'올해 목표는 100명',date:'2026-09-30',ownerId:(await load(orgId)).access.memberId,indicatorIds:[],evidence:[]}});

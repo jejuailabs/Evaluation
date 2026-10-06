@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode, type FormEvent } from 'react';
 import type { Workspace, Command, EvidenceRef, DocumentVersion } from '../domain/types';
 
-export type Context = { s: Workspace; run: (command: Command) => Promise<boolean>; notify: (text: string) => void; canWrite?:boolean; canManage?:boolean; cloud?:boolean; upload?:(projectId:string,file:File)=>Promise<DocumentVersion>; read?:(version:DocumentVersion)=>Promise<Blob> };
+export type Context = { s: Workspace; run: (command: Command) => Promise<boolean>; notify: (text: string) => void; canWrite?:boolean; canManage?:boolean; cloud?:boolean; memberId?:string; saveError?:string; clearError?:()=>void; upload?:(projectId:string,file:File)=>Promise<DocumentVersion>; read?:(version:DocumentVersion)=>Promise<Blob> };
 export function Icon({ name, size = 20 }: { name: string; size?: number }) {
   const paths: Record<string, ReactNode> = {
     home: <><path d="m3 10 9-7 9 7v10H3Z"/><path d="M9 20v-7h6v7"/></>,
@@ -23,10 +23,10 @@ export function Heading({ eyebrow, title, description, action }: { eyebrow?: str
 export function Empty({ children }: { children: ReactNode }) { return <div className="empty">{children}</div>; }
 export function Pill({ children, tone = '' }: { children: ReactNode; tone?: string }) { return <span className={`pill ${tone}`}>{children}</span>; }
 export function Progress({ value, label }: { value: number | null; label?: string }) { return <div className="progress" role="meter" aria-label={label ?? '달성률'} aria-valuenow={value === null ? undefined : Math.min(value,100)} aria-valuemin={0} aria-valuemax={100} aria-valuetext={value === null ? '미설정' : `${value.toFixed(1)}%`}><span style={{ width: `${Math.max(0, Math.min(100, value ?? 0))}%` }}/></div>; }
-export function Modal({ title, close, children, wide=false }: { title: string; close: () => void; children: ReactNode; wide?:boolean }) {
+export function Modal({ title, close, children, wide=false, error }: { title: string; close: () => void; children: ReactNode; wide?:boolean;error?:string }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => { const d = ref.current; d?.showModal(); return () => d?.close(); }, []);
-  return <dialog className={wide?'wide-dialog':undefined} ref={ref} onCancel={close} onClick={e => { if (e.target === ref.current) close(); }}><div className="dialog-head"><h2>{title}</h2><button className="icon-button" onClick={close} aria-label="닫기"><Icon name="close"/></button></div>{children}</dialog>;
+  return <dialog className={wide?'wide-dialog':undefined} ref={ref} onCancel={close} onClick={e => { if (e.target === ref.current) close(); }}><div className="dialog-head"><h2>{title}</h2><button className="icon-button" onClick={close} aria-label="닫기"><Icon name="close"/></button></div>{error&&<p className="form-error" role="alert">{error}</p>}{children}</dialog>;
 }
 export function Form({ submit, children, label = '저장' }: { submit: (data: FormData) => void | Promise<void>; children?: ReactNode; label?: string }) {
   const [busy, setBusy] = useState(false);
@@ -39,8 +39,8 @@ export function Form({ submit, children, label = '저장' }: { submit: (data: Fo
 }
 export function Field({ label, children }: { label: string; children: ReactNode }) { return <label className="field"><span>{label}</span>{children}</label>; }
 export function Members({ s, name = 'ownerId', initial }: { s: Workspace; name?: string; initial?: string }) { return <select name={name} defaultValue={initial}>{s.members.map(m => <option key={m.id} value={m.id}>{m.name} · {m.role}</option>)}</select>; }
-export function EvidenceSelect({ s, projectId, required = true }: { s: Workspace; projectId: string; required?: boolean }) {
-  return <select name="evidence" required={required}><option value="">자료와 버전을 선택해 주세요</option>{s.documents.filter(d => d.orgId === s.organization.id && d.projectId === projectId).flatMap(d => d.versions.map((v,i) => <option key={v.id} value={`${d.id}|${v.id}`}>{d.title} · v{i+1}</option>))}</select>;
+export function EvidenceSelect({ s, projectId, required = true,initial }: { s: Workspace; projectId: string; required?: boolean;initial?:EvidenceRef }) {
+  return <select name="evidence" defaultValue={initial?`${initial.documentId}|${initial.versionId}`:''} required={required}><option value="">자료와 버전을 선택해 주세요</option>{s.documents.filter(d => d.orgId === s.organization.id && d.projectId === projectId).flatMap(d => d.versions.map((v,i) => <option key={v.id} value={`${d.id}|${v.id}`}>{d.title} · v{i+1}</option>))}</select>;
 }
 export function evidenceData(f: FormData): EvidenceRef | undefined { const value = String(f.get('evidence') ?? ''); if (!value) return undefined; const [documentId, versionId] = value.split('|'); return { documentId, versionId }; }
 export const textValue = (f: FormData, key: string) => String(f.get(key) ?? '').trim();

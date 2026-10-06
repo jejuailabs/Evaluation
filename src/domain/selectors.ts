@@ -1,4 +1,5 @@
 import type { Workspace, Project, Indicator, BudgetSummary, MetricSummary, EvidenceRef } from './types';
+import { expenseTotals } from './finance-selectors';
 
 export const today = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Seoul' }).format(new Date());
 export const savedDate = (value:string) => new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul'}).format(new Date(value));
@@ -15,14 +16,10 @@ export function projectRows<T extends { orgId: string; projectId: string }>(s: W
   getProject(s, projectId);
   return rows.filter(x => x.orgId === s.organization.id && x.projectId === projectId);
 }
-export function budgetSummary(s: Workspace, projectId: string, asOf?: string): BudgetSummary {
+export function budgetSummary(s: Workspace, projectId: string, asOf?: string,periodStart?:string): BudgetSummary {
   const project = getProject(s, projectId);
-  const rows = projectRows(s, s.expenses, projectId).filter(x => !asOf || x.date <= asOf);
-  const sum = (statuses: string[]) => rows.filter(x => statuses.includes(x.status)).reduce((a, x) => a + x.amount, 0);
-  const committed = sum(['planned']);
-  const spent = sum(['confirmed', 'paid']);
-  const paid = sum(['paid']);
-  return { allocated: project.budget, committed, spent, paid, available: project.budget - spent - committed, unpaid: spent - paid };
+  const t=expenseTotals(projectRows(s,s.expenses,projectId),periodStart,asOf);
+  return { allocated: project.budget, committed:t.committed,spent:t.spent,paid:t.paid,available:project.budget-t.approvedThrough-t.reservedThrough,unpaid:t.unpaid };
 }
 export function resolveEvidence(s: Workspace, projectId: string, ref: EvidenceRef) {
   const document = projectRows(s, s.documents, projectId).find(x => x.id === ref.documentId);
@@ -63,4 +60,4 @@ export function metricSummary(s: Workspace, i: Indicator, asOf = today(), period
 }
 export const ownerName = (s: Workspace, id: string) => s.members.find(m => m.id === id)?.name ?? '미배정';
 export const taskLabels = { todo: '예정', doing: '진행 중', done: '완료' } as const;
-export const expenseLabels = { planned: '집행 예정', confirmed: '집행 확정', paid: '지급 완료' } as const;
+export const expenseLabels = { planned:'집행 예정',submitted:'검토 요청',returned:'보완 요청',confirmed:'승인 · 미지급',paid:'지급 완료',cancelled:'취소' } as const;

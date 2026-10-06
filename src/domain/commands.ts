@@ -2,6 +2,8 @@ import type { Workspace, Command, Scoped } from './types';
 import { getProject, projectRows, resolveEvidence, budgetSummary, metricSummary, uid, today, confirmedMeasurements } from './selectors';
 import { applyLifecycle } from './lifecycle';
 import { standards } from './standards';
+import { applyFinance } from './finance';
+import { financeSnapshot } from './finance-selectors';
 
 function requireText(value: string, label: string) { if (!value.trim()) throw new Error(`${label}을(를) 입력해 주세요.`); }
 function validDate(date: string) {
@@ -17,13 +19,13 @@ function scope(s: Workspace, row: Scoped) {
 function uniqueId(rows: { id: string }[], id: string) { if (rows.some(x => x.id === id)) throw new Error('이미 처리한 항목이에요.'); }
 
 // Pure transaction boundary: validation failure never changes the original state.
-export function execute(original: Workspace, input: Command, now = new Date().toISOString()): Workspace {
+export function execute(original: Workspace, input: Command, now = new Date().toISOString(), actorId = original.members[0]?.id??'demo'): Workspace {
   const command=structuredClone(input);
   const s = structuredClone(original);
   const row='project' in command?command.project:'task' in command?command.task:'expense' in command?command.expense:'document' in command?command.document:'indicator' in command?command.indicator:'measurement' in command?command.measurement:'activity' in command?command.activity:null;
-  const affected='projectId' in command?command.projectId:row?('projectId' in row?row.projectId:row.id):'';
+  const affected='projectId' in command?command.projectId:'line' in command?command.line.projectId:row?('projectId' in row?row.projectId:row.id):'';
   if(affected&&!['project.add','project.update','report.create'].includes(command.type)&&['completed','archived'].includes(s.projects.find(p=>p.id===affected)?.status??''))throw new Error('완료·보관한 프로젝트예요. 계획·상태에서 진행 중으로 다시 열어 주세요.');
-  const extended=applyLifecycle(s,command,now);
+  const extended=applyFinance(s,command,now,actorId)??applyLifecycle(s,command,now);
   if(extended){s.revision++;s.events.unshift({id:uid(),...extended,at:now});return s;}
   let projectId = '';
   let action = '';
@@ -60,31 +62,6 @@ export function execute(original: Workspace, input: Command, now = new Date().to
       uniqueId(d.versions, command.version.id);
       if (!command.version.blobKey && command.version.inlineText === undefined) throw new Error('저장된 원본이 필요해요.');
       d.versions.push(command.version); projectId = d.projectId; action = `새 버전 등록 · ${d.title}`; break;
-    }
-    case 'expense.add': {
-      const e = command.expense; scope(s, e); uniqueId(s.expenses, e.id); requireText(e.title, '집행 내용'); amount(e.amount);
-      if (e.amount === 0) throw new Error('집행액은 0원보다 커야 해요.');
-      validDate(e.date); member(s, e.ownerId);
-      const p = getProject(s, e.projectId);
-      if (e.date < p.start || e.date > p.end) throw new Error('집행일은 프로젝트 기간 안으로 정해 주세요.');
-      if (!['planned', 'confirmed', 'paid'].includes(e.status)) throw new Error('집행 상태가 올바르지 않아요.');
-      if (e.evidence) resolveEvidence(s, e.projectId, e.evidence);
-      if (e.status !== 'planned' && !e.evidence) throw new Error('집행을 확정하려면 증빙 자료를 연결해 주세요.');
-      s.expenses.push(e); projectId = e.projectId; action = `집행 등록 · ${e.title}`; break;
-    }
-    case 'expense.evidence': {
-      const e = projectRows(s, s.expenses, command.projectId).find(x => x.id === command.expenseId);
-      if (!e || e.status !== 'planned') throw new Error('예정 상태의 집행에만 증빙을 추가할 수 있어요.');
-      resolveEvidence(s, e.projectId, command.evidence);
-      e.evidence = command.evidence; projectId = e.projectId; action = `집행 증빙 연결 · ${e.title}`; break;
-    }
-    case 'expense.status': {
-      const e = projectRows(s, s.expenses, command.projectId).find(x => x.id === command.expenseId);
-      if (!e) throw new Error('집행 기록을 찾지 못했어요.');
-      const next = e.status === 'planned' ? 'confirmed' : e.status === 'confirmed' ? 'paid' : null;
-      if (command.status !== next) throw new Error('집행 예정 → 확정 → 지급 순서로 처리해 주세요.');
-      if (!e.evidence) throw new Error('증빙이 연결된 집행만 확정할 수 있어요.');
-      resolveEvidence(s, e.projectId, e.evidence); e.status = command.status; projectId = e.projectId; action = `집행 상태 변경 · ${e.title}`; break;
     }
     case 'indicator.add': {
       const i = command.indicator; scope(s, i); uniqueId(s.indicators, i.id); requireText(i.name, '지표 이름'); requireText(i.unit, '단위'); requireText(i.definition, '집계 기준');
@@ -138,12 +115,13 @@ export function execute(original: Workspace, input: Command, now = new Date().to
       const measurements = projectRows(s, s.measurements, p.id).filter(m => m.asOf <= command.asOf&&m.asOf>=start);
       const metrics = projectRows(s, s.indicators, p.id).map(i => metricSummary(s, i, command.asOf,start));
       const refKeys = new Set(metrics.flatMap(m => [...(m.evidenceVersionIds??(m.evidenceVersionId ? [m.evidenceVersionId] : [])),...(m.planningSource?[m.planningSource.evidence.versionId]:[])]));
-      projectRows(s, s.expenses, p.id).filter(e => e.date <= command.asOf&&e.date>=start).forEach(e => { if (e.evidence) refKeys.add(e.evidence.versionId); });
+      const finance=financeSnapshot(s,[p.id],start,command.asOf);
+      finance.expenses.forEach(e => { if(e.evidence)refKeys.add(e.evidence.versionId);e.payments?.forEach(p=>{if(!p.voided&&p.date>=start&&p.date<=command.asOf)refKeys.add(p.evidence.versionId);}); });
       const activities=(s.activities??[]).filter(a=>a.projectId===p.id&&a.date>=start&&a.date<=command.asOf);
       activities.forEach(a=>{a.evidence.forEach(e=>refKeys.add(e.versionId));const d=s.documents.find(d=>d.id===a.documentId);d?.versions.forEach(v=>refKeys.add(v.id));});
       const evidence = projectRows(s, s.documents, p.id).flatMap(d => d.versions.filter(v => refKeys.has(v.id)).map(v => ({ title: d.title, versionId: v.id, name: v.name })));
       s.reports.unshift({ id: uid(), orgId: s.organization.id, projectId: p.id, title: `${p.name} · ${command.asOf} 보고`, projectName: p.name, purpose: p.purpose,
-        periodStart: start, asOf: command.asOf, createdAt: now, budget: budgetSummary({...s,expenses:s.expenses.filter(e=>e.date>=start)}, p.id, command.asOf), metrics,activities:activities.map(({title,date,body})=>({title,date,body})),
+        periodStart: start, asOf: command.asOf, createdAt: now, budget: budgetSummary(s, p.id, command.asOf,start), finance, metrics,activities:activities.map(({title,date,body})=>({title,date,body})),
         completedTasks: tasks.filter(t => t.status === 'done').length, totalTasks: tasks.length,
         pendingMeasurements: measurements.filter(m => m.status === 'pending').length, evidence, note: command.note });
       projectId = p.id; action = '보고서 스냅샷을 만들었어요'; break;

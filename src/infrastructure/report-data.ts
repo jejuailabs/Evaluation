@@ -1,5 +1,6 @@
 import type { AnnualReport, MetricSummary, Report } from '../domain/types';
 import { assessmentLabels } from '../domain/standards';
+import {expenseLabels} from '../domain/selectors';
 export type ExportReport = Report | AnnualReport;
 export const isAnnualReport = (r: ExportReport): r is AnnualReport => 'planId' in r;
 export const exportTitle = (r: ExportReport) => isAnnualReport(r) ? r.title : `${r.projectName} 결과 보고서`;
@@ -30,6 +31,11 @@ export function reportSheets(r: ExportReport): ExportSheet[] {
     sheets.push({ name: '사업비', rows: [['항목', '금액 원'], ['배정', r.budget.allocated], ['확정 집행', r.budget.spent], ['지급', r.budget.paid], ['집행 예정', r.budget.committed], ['가용', r.budget.available], ['미지급', r.budget.unpaid]] });
     sheets.push({ name: '현장 기록', rows: [['일자', '제목', '기록'], ...(r.activities ?? []).map(a => [a.date, a.title, a.body])] });
     sheets.push({ name: '참조 원본', rows: [['자료 이름', '파일명', '원본 버전'], ...r.evidence.map(e => [e.title, e.name, e.versionId])] });
+  }
+  if(r.finance){
+    sheets.push({name:'집행 명세',rows:[['프로젝트','요청 내용','담당자','세목','재원','집행일','요청액 원','기간 승인 집행 원','기간 지급 원','기준일까지 미지급 원','현재 상태','지출 근거 문서','근거 버전','사용 목적'],...r.finance.expenses.map(e=>[e.projectName,e.title,e.ownerName,e.budgetLineName,e.fundingSource,e.date,e.amount,e.periodSpent,e.periodPaid,e.outstanding,expenseLabels[e.status],e.evidence?.documentId??'',e.evidence?.versionId??'',e.description??''])]});
+    sheets.push({name:'지급 원장',rows:[['프로젝트','요청 내용','지급일','금액 원','상태','입력자 번호','메모','증빙 문서','증빙 버전','입력 시각','정정 사유'],...r.finance.expenses.flatMap(e=>e.payments!==undefined?e.payments.filter(p=>p.date>=r.finance!.start&&p.date<=r.finance!.end).map(p=>[e.projectName,e.title,p.date,p.amount,p.voided?'무효':'유효',p.actorId,p.note,p.evidence.documentId,p.evidence.versionId,p.recordedAt,p.voided?.reason??''] as Cell[]):e.status==='paid'&&e.periodPaid>0?[[e.projectName,e.title,e.date,e.amount,'이전 지급 완료','','지급 원장이 없는 이전 자료',e.evidence?.documentId??'',e.evidence?.versionId??'','',''] as Cell[]]:[])]});
+    sheets.push({name:'집행 처리 이력',rows:[['프로젝트','요청 내용','시각','처리','담당자 번호','사유','이전 내용','이전 금액 원','이전 집행일'],...r.finance.expenses.flatMap(e=>(e.history??[]).map(h=>[e.projectName,e.title,h.at,h.action,h.actorId,h.reason,h.previous?.title??'',h.previous?.amount??null,h.previous?.date??'']))]});
   }
   return sheets;
 }

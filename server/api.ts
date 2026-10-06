@@ -117,8 +117,8 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
   if(input.revision!==row.revision)throw new HttpError(409,'다른 사람이 변경했어요. 새로고침하고 다시 저장해 주세요.');
   const pid=commandProject(command);
   if(command.type==='activity.add')command.activity.ownerId=actor.memberId;
-  if(command.type==='project.add'||command.type==='project.update'||command.type==='task.add'||command.type==='task.update'||command.type==='expense.add'||command.type==='activity.add'){
-   const ownerId='project' in command?command.project.ownerId:'task' in command?command.task.ownerId:'activity' in command?command.activity.ownerId:command.expense.ownerId;
+  if(command.type==='project.add'||command.type==='project.update'||command.type==='task.add'||command.type==='task.update'||command.type==='expense.add'||command.type==='expense.update'||command.type==='activity.add'){
+   const ownerId='project' in command?command.project.ownerId:'task' in command?command.task.ownerId:'activity' in command?command.activity.ownerId:'fields' in command?command.fields.ownerId:command.expense.ownerId;
    const member=await db.prepare('SELECT role FROM memberships WHERE id=? AND org_id=? AND active=1').bind(ownerId,orgId).first<{role:Role}>();
    if(!member)throw new HttpError(400,'활성 구성원을 담당자로 선택해 주세요.');
    if(command.type!=='project.add'&&!isManager(member.role)&&!(await db.prepare('SELECT 1 FROM project_members WHERE org_id=? AND project_id=? AND member_id=?').bind(orgId,pid,ownerId).first()))throw new HttpError(400,'이 프로젝트에 참여한 담당자를 선택해 주세요.');
@@ -132,7 +132,7 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
    if(command.type==='document.add')command.document.versions=[canonical];else command.version=canonical;
   }
   if(command.type==='measurement.add')command.measurement.createdAt=timestamp();
-  let next:Workspace;try{next=execute(state,command);}catch(e){throw new HttpError(400,(e as Error).message);}
+  let next:Workspace;try{next=execute(state,command,timestamp(),actor.memberId);}catch(e){throw new HttpError(400,(e as Error).message);}
   const encoded=JSON.stringify(next);if(new TextEncoder().encode(encoded).byteLength>1024*1024)throw new HttpError(413,'현재 단계의 조직 저장 한도에 도달했어요.');
   const updates=await db.batch([db.prepare("UPDATE organizations SET body=?,revision=revision+1 WHERE id=? AND revision=? AND status='active'").bind(encoded,orgId,input.revision),db.prepare('INSERT INTO operations (id,org_id,actor_id,action,request_hash,created_at) SELECT ?,?,?,?,?,? WHERE changes()>0').bind(input.id,orgId,user.userId,command.type,requestHash,timestamp())]);
   if(!updates[0].meta.changes)throw new HttpError(409,'다른 사람이 먼저 저장했어요. 새로고침하고 다시 시도해 주세요.');

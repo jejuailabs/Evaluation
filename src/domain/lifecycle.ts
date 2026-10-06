@@ -1,6 +1,7 @@
 import type { Command, Workspace } from './types';
 import { annualSnapshot } from './annual';
 import { getProject, resolveEvidence, today, uid } from './selectors';
+import {expensePaid,isApproved} from './finance-selectors';
 
 function text(v:string,label:string){if(!v.trim())throw new Error(`${label}을 입력해 주세요.`);}
 function positive(v:number|null){if(v!==null&&(!Number.isFinite(v)||v<0))throw new Error('0 이상의 유효한 숫자를 입력해 주세요.');}
@@ -49,12 +50,16 @@ export function applyLifecycle(s:Workspace,c:Command,now:string):{projectId:stri
       const p=getProject(s,c.project.id);if(c.project.orgId!==s.organization.id)throw new Error('조직이 일치하지 않아요.');
       text(c.reason,'계획 변경 이유');text(c.project.name,'프로젝트 이름');text(c.project.purpose,'목적');date(c.project.start);date(c.project.end);
       if(c.project.end<c.project.start)throw new Error('종료일은 시작일 이후로 정해 주세요.');positive(c.project.budget);if(!Number.isSafeInteger(c.project.budget))throw new Error('예산은 원 단위로 입력해 주세요.');
+      if((s.budgetLines??[]).filter(l=>l.projectId===p.id).reduce((n,l)=>n+l.allocated,0)>c.project.budget)throw new Error('세목에 배정한 금액보다 프로젝트 예산을 줄일 수 없어요.');
+      if(s.expenses.filter(e=>e.projectId===p.id&&isApproved(e)).reduce((n,e)=>n+e.amount,0)>c.project.budget)throw new Error('승인한 집행보다 프로젝트 예산을 줄일 수 없어요.');
+      if(s.expenses.filter(e=>e.projectId===p.id).flatMap(e=>e.payments??[]).some(x=>x.date<c.project.start||x.date>c.project.end))throw new Error('지급 기록의 날짜를 포함하는 프로젝트 기간으로 정해 주세요.');
       if(!s.members.some(m=>m.id===c.project.ownerId))throw new Error('담당자를 확인해 주세요.');
       const dates=[...s.expenses.filter(e=>e.projectId===p.id).map(e=>e.date),...s.measurements.filter(m=>m.projectId===p.id).flatMap(m=>[m.asOf,m.periodStart??m.asOf]),...s.tasks.filter(t=>t.projectId===p.id).map(t=>t.due),...s.activities.filter(a=>a.projectId===p.id).map(a=>a.date)];
       if(dates.some(d=>d<c.project.start||d>c.project.end))throw new Error('기존 업무·집행·실적·기록을 포함하는 기간으로 설정해 주세요.');
       const targetStatus=c.project.status??'active';
       if(targetStatus==='archived'&&!['completed','archived'].includes(p.status??''))throw new Error('완료한 프로젝트만 보관할 수 있어요.');
       if(targetStatus==='completed'&&p.status!=='completed'){
+        if(s.expenses.some(e=>e.projectId===p.id&&(['planned','submitted','returned'].includes(e.status)||(isApproved(e)&&expensePaid(e)<e.amount))))throw new Error('남은 집행 요청과 미지급액을 먼저 정리해 주세요.');
         if(s.tasks.some(t=>t.projectId===p.id&&t.status!=='done')||s.measurements.some(m=>m.projectId===p.id&&m.status==='pending'))throw new Error('남은 업무와 확인 전 실적을 먼저 정리해 주세요.');
         if(!s.reports.some(r=>r.projectId===p.id&&r.asOf>=(p.end<today()?p.end:today())))throw new Error('마감 시점의 프로젝트 보고서를 먼저 만들어 주세요.');
         text(c.project.closeNote??'','마무리 기록');

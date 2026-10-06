@@ -41,9 +41,10 @@ test('다른 프로젝트의 업무 ID 수정 차단',()=>{
 });
 test('예정 집행에 증빙을 나중에 연결한 후 확정 가능',()=>{
   let s=createSeed();s=execute(s,{type:'expense.add',expense:{...s.expenses[2],id:'later-evidence',evidence:undefined}});
-  assert.throws(()=>execute(s,{type:'expense.status',projectId:'care',expenseId:'later-evidence',status:'confirmed'}),/증빙/);
+  assert.throws(()=>execute(s,{type:'expense.submit',projectId:'care',expenseId:'later-evidence'}),/근거/);
   s=execute(s,{type:'expense.evidence',projectId:'care',expenseId:'later-evidence',evidence:{documentId:'d2',versionId:'v2'}});
-  s=execute(s,{type:'expense.status',projectId:'care',expenseId:'later-evidence',status:'confirmed'});
+  s=execute(s,{type:'expense.submit',projectId:'care',expenseId:'later-evidence'});
+  s=execute(s,{type:'expense.review',projectId:'care',expenseId:'later-evidence',decision:'confirmed',reason:'증빙 확인'});
   assert.equal(s.expenses.find(e=>e.id==='later-evidence')!.status,'confirmed');
 });
 test('0은 유효 실적이고 미입력과 구별',()=>{

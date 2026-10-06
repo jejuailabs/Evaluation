@@ -25,6 +25,10 @@ export async function reportDOCX(r: ExportReport): Promise<Blob> {
     children.push(p('분기별 점검', HeadingLevel.HEADING_2));
     for (const q of r.quarters) children.push(p(`${q.label}   확정 집행 ${money(q.spent)}`), p(q.goals.map(g => `${g.name}: ${g.actual === null ? '미집계' : number(g.actual) + g.unit}`).join('\n')));
   } else children.push(p(`배정 ${money(r.budget.allocated)}   확정 집행 ${money(r.budget.spent)}   지급 ${money(r.budget.paid)}`), p(`집행 예정 ${money(r.budget.committed)}   기간 내 가용 ${money(r.budget.available)}   업무 완료 ${r.completedTasks}/${r.totalTasks}`));
+  if(r.finance){
+    children.push(p('집행·지급 명세',HeadingLevel.HEADING_1),p('집행은 집행일, 지급은 실제 지급일 기준입니다. 처리 상태는 보고서를 만든 당시 기준이며 기존 보고서는 이후 정정으로 바뀌지 않습니다.'));
+    for(const e of r.finance.expenses){children.push(p(`${e.projectName} · ${e.title}`,HeadingLevel.HEADING_2),p(`${e.ownerName} / ${e.budgetLineName} / ${e.fundingSource}`),p(`요청 ${money(e.amount)} / 기간 집행 ${money(e.periodSpent)} / 기간 지급 ${money(e.periodPaid)} / 기준일까지 미지급 ${money(e.outstanding)}`),p(`지출 근거 버전 ${e.evidence?.versionId??'없음'}`));for(const payment of e.payments??[])if(payment.date>=r.finance.start&&payment.date<=r.finance.end)children.push(p(`${payment.date} ${money(payment.amount)} · ${payment.voided?'무효 처리':'지급 기록'} · ${payment.note}\n근거 버전 ${payment.evidence.versionId}${payment.voided?'\n정정 사유 '+payment.voided.reason:''}`));}
+  }
   children.push(p('지표 정의와 근거', HeadingLevel.HEADING_1));
   for (const m of metrics) {
     children.push(p(m.name, HeadingLevel.HEADING_2), p(`${m.source}   정의 v${m.definitionVersion}   기준일 ${m.asOf ?? '확인 기록 없음'}`), p(m.definition));
