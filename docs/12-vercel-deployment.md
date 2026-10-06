@@ -21,7 +21,7 @@
 
 `.env.example`을 기준으로 Vercel의 Production/Preview 범위에 따로 등록합니다. `.env.local`은 Git에 올리지 않습니다. 서버 키에 `VITE_`나 `NEXT_PUBLIC_`를 붙이지 않습니다.
 
-이번 로컬 연결에서 Vercel 등록용 `.env.vercel.local`도 준비했습니다(Git 제외, 비밀값 포함). 운영 `APP_URL`은 `https://evaluation-jejuai.vercel.app`이고, 아직 `SUPABASE_SECRET_KEY`는 비어 있습니다. 관리 토큰과 마이그레이션 관리자 접속값은 이 파일에서 제외합니다. 서버 키를 연결한 뒤 입력 파일도 갱신해야 합니다.
+Vercel 등록용 `.env.vercel.local`을 준비했고 서버 키까지 반영했습니다(Git 제외, 비밀값 포함). 운영 `APP_URL`은 `https://evaluation-jejuai.vercel.app`입니다. 이 파일의 값을 Vercel 프로젝트의 환경변수에 등록하고 재배포해야 합니다. 로컬 파일 갱신만으로 배포 서버의 설정이 바뀌지는 않습니다. 관리 토큰과 마이그레이션 관리자 접속값은 이 파일에서 제외합니다.
 
 | 이름 | 값/용도 |
 | --- | --- |
@@ -39,13 +39,13 @@
 
 ## DB와 파일 저장소 준비
 
-2026-10-06 사용자 승인으로 기존 `projecthub` (`tcodixafsipheefvuouc`, 서울 리전)를 공유합니다. 새 독립 프로젝트 생성은 무료 활성 프로젝트 한도로 거절됐고, 기존 프로젝트 안에 별도 업무 공간을 생성하는 방식으로 전환했습니다. 기존 서비스의 업무 테이블·버킷·Auth 설정은 변경하지 않았습니다.
+2026-10-06 사용자 승인으로 기존 `projecthub` (`tcodixafsipheefvuouc`, 서울 리전)를 공유합니다. 새 독립 프로젝트 생성은 무료 활성 프로젝트 한도로 거절됐고, 기존 프로젝트 안에 별도 업무 공간을 생성하는 방식으로 전환했습니다. 기존 서비스의 업무 테이블·버킷과 Auth의 Site URL·메일 템플릿은 보존했고, 가치 돋보기의 로그인 복귀 주소만 허용 목록에 추가했습니다.
 
 - `value_lens` 비공개 스키마: 업무 테이블 9개와 마이그레이션 이력. 모든 테이블에 RLS 적용, `anon`/`authenticated` 직접 접근 없음.
 - `value_lens_runtime`: 이 서비스 전용 로그인 역할. 상위 역할을 상속하지 않으며 `value_lens_app`만 사용할 수 있습니다. 기존 `public` 업무 테이블과 `auth.users` 조회 불가를 실제 확인했습니다. 비밀번호는 Git에서 제외된 로컬 설정에만 저장합니다.
-- `value-lens-documents`: 비공개, 파일당 25MiB, 형식 제한 없음. 기존 `project-materials` 버킷과 정책을 유지했습니다. 서버 Secret Key가 아직 없어 실제 파일 업로드/다운로드 왕복은 대기 중입니다.
+- `value-lens-documents`: 비공개, 파일당 25MiB, 형식 제한 없음. 기존 `project-materials` 버킷과 정책을 유지했습니다. 서버 Secret Key를 로컬 환경에 연결하고 앱의 Storage 어댑터로 서명 업로드 → 크기 조회 → 서명 다운로드 및 내용 일치 → 익명·공개 URL 접근 차단 → 검증 파일 삭제를 확인했습니다. 로그인한 두 조직 간의 전체 API 흐름 검증은 별도입니다.
 - 실제 Transaction pooler 연결, 전용 테이블 저장·조회·JOIN, 기존 서비스 테이블 접근 거부, 검증 데이터 롤백을 확인했습니다. 로컬 `.env.local`에 URL·공개 키·전용 DB 접속값을 저장했습니다.
-- Auth 공개 설정 조회 결과: Email 활성, 이메일 확인 필수, Google 비활성. SMTP·허용 복귀 URL·실제 로그인 성공 여부는 아직 확인/설정이 필요합니다.
+- Auth 관리 API 확인 결과: Email 활성, 이메일 확인 필수, 가입 허용, Google 비활성. Google Client ID/Secret과 Custom SMTP가 비어 있습니다. 운영·로컬 `/auth/callback` 허용 주소는 등록하고 재조회로 확인했습니다. 기존 Site URL과 메일 템플릿은 유지했습니다. 실제 이메일 수신과 Google 로그인 성공은 아직 검증하지 않았습니다.
 
 Supabase 프로젝트를 공유하므로 Auth 사용자 목록·인증 제공자·메일 설정·리소스 한도는 공유합니다. DB 전용 계정의 권한 분리가 별도 Supabase 프로젝트 수준의 격리를 뜻하지 않습니다. Storage용 `SUPABASE_SECRET_KEY` 역시 프로젝트 전체 권한을 가지므로 서버에서만 사용합니다.
 
@@ -79,7 +79,7 @@ Supabase Auth에서 Email provider를 활성화합니다. Confirm signup과 Magi
 
 Supabase Auth → Providers에서 Google OAuth를 설정합니다. Google Cloud의 OAuth redirect URI는 `https://tcodixafsipheefvuouc.supabase.co/auth/v1/callback`입니다. 공유 프로젝트의 기존 **Site URL과 메일 템플릿을 덮어쓰지 않습니다.** Redirect URLs의 기존 항목을 유지하면서 `https://evaluation-jejuai.vercel.app/auth/callback`과 로컬 개발용 `http://127.0.0.1:5173/auth/callback`을 추가합니다. 앱은 명시적으로 `APP_URL/auth/callback`을 지정합니다. Google Client Secret은 Supabase Provider 설정에 저장합니다.
 
-현재 MCP에는 Auth 설정 수정·Secret Key 조회 도구가 없습니다. CLI 로그인 시도에서 토큰이 발급돼도 로컬 인증이 완료되지 않은 상태를 확인했습니다. 관리 자동화에 PAT를 사용할 경우 프로젝트 범위를 `projecthub`로 제한하고 필요한 Auth Config·API Keys·API Key Secrets 권한만 부여합니다. 관리 토큰은 로컬 `SUPABASE_ACCESS_TOKEN`으로만 사용하고 Vercel·브라우저·Git에 전달하지 않습니다. 제공자 설정에 Site URL 변경이 포함될 때에는 공식 권한 문서의 추가 Project Settings 권한 조건도 확인합니다.
+현재 MCP에는 Auth 설정 수정·Secret Key 조회 도구가 없어 사용자가 등록한 PAT로 공식 Management API를 사용했습니다. 인증 설정 읽기·복귀 URL 추가·기존 서버 키 조회를 완료했습니다. PAT는 프로젝트 범위를 `projecthub`로 제한하고 Auth Config와 Project Settings는 Read-write, API Keys와 API Key Secrets는 Read로 설정합니다. Auth 설정 변경 API는 Site URL 변경 여부와 무관하게 Auth Config와 Project Settings 쓰기 권한을 모두 요구합니다. 관리 토큰은 로컬 `SUPABASE_ACCESS_TOKEN`으로만 사용하고 Vercel·브라우저·Git에 전달하지 않습니다.
 
 로그인 후 빈 조직 만들기 → 조직 관리에서 다른 이메일 초대 → 초대받은 Google 계정 로그인 → 프로젝트 배정 순서로 확인합니다. 조직 관리자 역할은 DB 소속 기록으로 판단하며 사용자 프로필 메타데이터를 권한으로 신뢰하지 않습니다. 전체 관리자 설정은 서버 환경변수의 검증된 사용자 ID를 사용합니다.
 
@@ -101,6 +101,6 @@ npm run verify:vercel
 npm run check:services
 ```
 
-기존 서버 테스트를 PostgreSQL WASM 엔진(PGlite)과 실제 마이그레이션·어댑터로 실행합니다. `check:services`는 비밀값 없이 연결 상태를 출력하며, 미설정 항목이 있으면 종료 코드 2를 반환합니다. 실제 DB 연결·권한·롤백은 확인했으나 두 계정 Google 로그인·이메일 수신·Storage 왕복 검증은 설정 후 별도로 수행해야 합니다. Vercel 함수 산출물의 로컬 실행과 실제 Vercel 호스팅 배포는 구분합니다.
+기존 서버 테스트를 PostgreSQL WASM 엔진(PGlite)과 실제 마이그레이션·어댑터로 실행합니다. `check:services`는 비밀값 없이 연결 상태를 출력하며, 미설정 항목이 있으면 종료 코드 2를 반환합니다. 실제 DB 연결·권한·롤백과 Storage 왕복·비공개 접근 차단을 확인했습니다. 두 계정 Google 로그인·이메일 수신·조직 간 API 접근 검증은 인증 설정 후 별도로 수행해야 합니다. Vercel 함수 산출물의 로컬 실행과 실제 Vercel 호스팅 배포는 구분합니다.
 
 참고: [Vinext의 Nitro 배포](https://github.com/cloudflare/vinext#other-platforms-via-nitro), [Nitro Vercel](https://nitro.build/deploy/providers/vercel), [Vercel Build Output](https://vercel.com/docs/build-output-api/configuration), [Supabase 연결](https://supabase.com/docs/guides/database/connecting-to-postgres), [Storage 접근 제어](https://supabase.com/docs/guides/storage/security/access-control).

@@ -134,3 +134,13 @@
 - `check:services` 실제 결과: DB 연결 성공, Auth API 접근 성공, Email 활성, Google 비활성, Storage 서버 키 미설정.
 - 실제 Google 로그인·이메일 수신·Storage 왕복·Vercel 운영 환경변수 연결은 미완료. 공유 프로젝트의 Site URL·Google·메일 설정은 변경하지 않음.
 - `value-lens-codex` 토큰 3개가 대시보드에 보이지만 로컬 CLI는 Access token not provided를 반환했고 환경변수에도 없음. 토큰 발급과 로컬 전달/인증 완료를 구분함. 브라우저 제어 도구는 kernel assets 경로 오류로 실행되지 않아 관리 설정 변경을 완료했다고 주장하지 않음.
+
+## 2026-10-06 · 관리 토큰 연결과 실제 파일 저장 검증
+
+- 사용자가 `.env.local`에 등록한 PAT로 공식 Management API의 Auth 설정과 API 키 읽기 성공. 비밀값은 도구 출력·Git에 포함하지 않음.
+- 기존 서버 Secret Key를 `.env.local`에 저장. `.env.vercel.local`에도 반영하되 PAT·마이그레이션 접속값은 제외. Vercel 원격 환경변수는 아직 변경하지 않음.
+- Auth 허용 복귀 주소에 `https://evaluation-jejuai.vercel.app/auth/callback`, `http://127.0.0.1:5173/auth/callback` 추가 후 재조회 확인. 기존 Site URL과 메일 템플릿 유지.
+- 실제 앱의 `server/storage.ts` 어댑터로 무작위 임시 경로의 서명 업로드·파일 크기 확인·서명 다운로드 및 내용 일치·익명/공개 URL 접근 차단 통과. 테스트 원본 삭제 후 부재 확인.
+- `check:services`: DB 연결, Auth 접근, Email 활성, 비공개 Storage 설정 모두 정상. Google은 비활성이므로 전체 준비 완료를 뜻하지 않음.
+- Auth 관리 설정에서 Google Client ID/Secret 및 SMTP 미설정 확인. 기존 ProjectHub의 로컬 Google 키 입력란도 비어 있음. 실계정 Google 로그인·외부 회원 인증 메일 수신·조직 간 로그인 흐름 검증은 대기.
+- 이번 변경은 원격 연결 설정과 문서이며 제품 런타임 코드는 변경하지 않음. 기존 85개 테스트·빌드 결과와 이번 실제 연결 검증의 범위를 구분함.

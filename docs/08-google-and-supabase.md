@@ -1,10 +1,10 @@
-> 현재 상태(2026-10-06): 사용자 승인으로 Supabase `projecthub` 내부에 `value_lens` 스키마·전용 DB 계정·비공개 버킷을 생성했고 실제 DB 연결을 검증했습니다. 이메일 제공자는 활성, Google은 비활성입니다. 아래는 이전 Sites/D1/R2 단계의 기록입니다. 현재 설정과 남은 연결 작업은 [12 배포 안내](12-vercel-deployment.md)가 기준입니다.
+> 현재 상태(2026-10-06): Supabase `projecthub`의 `value_lens` 스키마·전용 DB 계정·비공개 Storage를 연결했고 실제 DB 및 파일 업로드·다운로드·익명 접근 차단을 검증했습니다. 서비스 로그인 복귀 주소와 서버 키도 연결했습니다. 이메일 제공자는 활성이나 운영 SMTP는 미설정이며 Google 클라이언트 정보도 없습니다. 아래는 이전 Sites/D1/R2 단계의 기록입니다. 현재 설정과 남은 연결 작업은 [12 배포 안내](12-vercel-deployment.md)가 기준입니다.
 
 # 08. Google 로그인 · Supabase 연결
 
 2026-10-05. 사용자 지시: ChatGPT 계정을 서비스의 기본 로그인으로 삼지 않고 최소 Google 로그인을 제공한다. Supabase MCP를 확인한다.
 
-## 현재 상태
+## 2026-10-05 당시 상태 (현재 구성은 상단 안내 참조)
 
 - Supabase MCP 연결 확인. 조직 `vibe`(무료), 활성 프로젝트 `projecthub`, 비활성 `novel` 및 `funjeju's Project`.
 - 연결할 프로젝트는 사용자 선택 대기 중이다. 새 프로젝트 생성, 기존 프로젝트 수정, DB 이전은 아직 실행하지 않았다.
