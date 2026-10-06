@@ -1,3 +1,10 @@
+import {commandBase} from '../src/domain/command-base';
+import {reportTemplates} from './report-templates';
+import {jobAPI,runOneJob,workerAuthorized} from './jobs';
+import {deadlineNotifications} from './deadlines';
+import {indexFile} from './file-inspection';
+import {documentSearch} from './document-search';
+import {handover,hasResponsibilities} from './handover';
 import {workspaceMetadata,workspacePayload,workspaceWrites,workspacePage} from './workspace-store';
 import { z } from 'zod';
 import { execute } from '../src/domain/commands';
@@ -14,7 +21,7 @@ import {transcribeAudio,transcriptionReady,validateAudio} from './meeting-ai';
 import {audioLimit} from '../src/domain/meeting';
 
 export type Identity={userId:string;email:string;displayName:string};
-export type Services={DB:Database;BUCKET?:ObjectStore;PLATFORM_ADMIN_USER_IDS?:string} & AIEnv;
+export type Services={DB:Database;BUCKET?:ObjectStore;PLATFORM_ADMIN_USER_IDS?:string;WORKER_SECRET?:string} & AIEnv;
 type Org={storage_version:number;id:string;name:string;status:string;revision:number;body:string;member_id:string;role:Role};
 const timestamp=()=>new Date().toISOString();
 const uuid=()=>crypto.randomUUID();
@@ -35,6 +42,10 @@ export async function handleApi(req:Request, env:Services, identity:Identity|nul
 }
 async function dispatch(req:Request, env:Services, identity:Identity|null):Promise<Response>{
  const url=new URL(req.url), parts=url.pathname.replace(/^\/api\/?/,'').split('/').filter(Boolean), method=req.method;
+ if(parts[0]==='internal'&&parts[1]==='worker'&&method==='POST'){
+  if(!workerAuthorized(env,req))throw new HttpError(403,'작업 처리 인증이 필요해요.');
+  await deadlineNotifications(env.DB);return json(await runOneJob(env));
+ }
  if(method!=='GET'){
   if(req.headers.get('Origin')!==url.origin||req.headers.get('X-Value-Lens')!=='1')throw new HttpError(403,'이 작업실에서 다시 시도해 주세요.');
  }
@@ -130,6 +141,9 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
  if(parts[0]!=='organizations'||!parts[1])throw new HttpError(404,'주소를 찾지 못했어요.');
  const orgId=parts[1],ctx=await org(orgId),{state,actor,row}=ctx;
  const collaboration={db,orgId,revision:row.revision,state,actor};
+ if(parts[2]==='report-templates')return json(await reportTemplates(env,orgId,actor,method,method==='GET'?undefined:await body(req)));
+ if(parts[2]==='jobs')return json(await jobAPI(env,{state,actor},method,method==='GET'?undefined:await body(req),parts[3]));
+ if(parts[2]==='document-search')return json(await documentSearch(env,state,actor,url,method));
  if(parts[2]==='discussions')return json(await discussions(collaboration,method,url,method==='GET'?undefined:await body(req),parts[3]));
  if(parts[2]==='notifications')return json(await notifications(collaboration,method,url,method==='GET'?undefined:await body(req)));
  if(parts[2]==='workspace'&&method==='GET')return json(workspacePayload(state,actor));
@@ -232,8 +246,19 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
   const requestHash=await hash(JSON.stringify(input.command));
   const previous=await db.prepare('SELECT org_id,actor_id,request_hash FROM operations WHERE id=?').bind(input.id).first<any>();
   if(previous){if(previous.org_id!==orgId||previous.actor_id!==user.userId||previous.request_hash!==requestHash)throw new HttpError(409,'같은 요청 번호로 다른 변경을 보낼 수 없어요.');return json(await result(orgId));}
-  if(input.revision!==row.revision)throw new HttpError(409,'다른 사람이 변경했어요. 새로고침하고 다시 저장해 주세요.');
+  if(input.revision!==row.revision&&(!input.baseProjectHash||input.baseProjectHash!==await commandBase(visibleWorkspace(state,actor),command)))throw new HttpError(409,'이 프로젝트가 변경됐어요. 입력을 유지한 채 최신 내용을 확인하고 다시 저장해 주세요.');
   const pid=commandProject(command);
+  if(command.type==='report.workflow'&&command.operation.action==='submit'&&!command.operation.artifactId)throw new HttpError(400,'실제 제출 파일을 먼저 고정하고 선택해 주세요.');
+  if(command.type==='report.asset'){
+   const report=(command.kind==='annual'?state.annualReports??[]:state.reports).find(r=>r.id===command.reportId)!;
+   const f=await db.prepare('SELECT f.*,c.sha256 FROM files f JOIN file_checks c ON c.file_id=f.id AND c.org_id=f.org_id WHERE f.id=? AND f.org_id=? AND f.uploader_id=?').bind(command.artifact.file.blobKey,orgId,user.userId).first<any>();
+   if(!f||('projectId' in report&&f.project_id!==report.projectId)||(!('projectId' in report)&&f.project_id!==null)||f.sha256!==command.artifact.sha256)throw new HttpError(400,'업로드한 제출 파일의 원본과 해시를 확인해 주세요.');
+   command.artifact.file={id:f.id,blobKey:f.id,name:f.name,size:f.size,createdAt:f.created_at};
+  }
+  if(command.type==='organization.approval.save'){
+   for(const id of command.approverIds){const m=await db.prepare('SELECT role FROM memberships WHERE id=? AND org_id=? AND active=1').bind(id,orgId).first<{role:Role}>();if(!m||!isManager(m.role))throw new HttpError(400,'활성 대표·관리자만 결재선에 지정할 수 있어요.');}
+  }
+  if(command.type==='organization.team.save')for(const id of command.team.memberIds)if(!await db.prepare('SELECT id FROM memberships WHERE id=? AND org_id=? AND active=1').bind(id,orgId).first())throw new HttpError(400,'활성 구성원만 팀에 지정할 수 있어요.');
   if(command.type==='activity.add')command.activity.ownerId=actor.memberId;
   if(command.type==='task.series.create'||command.type==='task.series.update'||command.type==='project.add'||command.type==='project.update'||command.type==='task.add'||command.type==='task.update'||command.type==='expense.add'||command.type==='expense.update'||command.type==='activity.add'){
    const ownerId=command.type==='task.series.create'?command.series.ownerId:command.type==='task.series.update'?command.fields.ownerId:'project' in command?command.project.ownerId:'task' in command?command.task.ownerId:'activity' in command?command.activity.ownerId:'fields' in command?command.fields.ownerId:command.expense.ownerId;
@@ -270,11 +295,12 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
   let next:Workspace;try{next=execute(state,command,timestamp(),actor.memberId);}catch(e){throw new HttpError(400,(e as Error).message);}
   const encoded=JSON.stringify(workspaceMetadata(next));
   const writeToken=uuid(),writes=workspaceWrites(db,orgId,state,next,row.storage_version,input.id,row.body,writeToken);
+  if(command.type==='report.asset')writes.push(db.prepare("INSERT INTO report_assets(id,org_id,report_id,kind,file_id,digest,report_version,created_by,created_at) SELECT ?,?,?,?,?,?,?,?,? WHERE current_setting('value_lens.command_token',true)=?").bind(command.artifact.id,orgId,command.reportId,command.kind,command.artifact.file.id,command.artifact.sha256,(command.kind==='annual'?state.annualReports??[]:state.reports).find(r=>r.id===command.reportId)?.workflow?.version??0,user.userId,timestamp(),writeToken));
   if(command.type==='intake.assign'){
    const item=state.intakeItems?.find(i=>i.id===command.id);
    if(item?.version.blobKey)writes.push(db.prepare("UPDATE files SET project_id=? WHERE id=? AND org_id=? AND project_id IS NULL AND EXISTS(SELECT 1 FROM operations WHERE id=? AND org_id=?) AND current_setting('value_lens.command_token',true)=?").bind(command.projectId,item.version.blobKey,orgId,input.id,orgId,writeToken));
   }
-  const updates=await db.batch([db.prepare("UPDATE organizations SET body=?,storage_version=2,revision=revision+1 WHERE id=? AND revision=? AND status='active'").bind(encoded,orgId,input.revision),db.prepare('INSERT INTO operations (id,org_id,actor_id,action,request_hash,created_at) SELECT ?,?,?,?,?,? WHERE changes()>0 RETURNING set_config(\'value_lens.command_token\',?,true)').bind(input.id,orgId,user.userId,command.type,requestHash,timestamp(),writeToken),...writes,...workflowNotifications(collaboration,command,next,input.id,writeToken)]);
+  const updates=await db.batch([db.prepare("UPDATE organizations SET body=?,storage_version=2,revision=revision+1 WHERE id=? AND revision=? AND status='active'").bind(encoded,orgId,row.revision),db.prepare('INSERT INTO operations (id,org_id,actor_id,action,request_hash,created_at) SELECT ?,?,?,?,?,? WHERE changes()>0 RETURNING set_config(\'value_lens.command_token\',?,true)').bind(input.id,orgId,user.userId,command.type,requestHash,timestamp(),writeToken),...writes,...workflowNotifications(collaboration,command,next,input.id,writeToken)]);
   if(!updates[0].meta.changes)throw new HttpError(409,'다른 사람이 먼저 저장했어요. 새로고침하고 다시 시도해 주세요.');
   return json(await result(orgId));
  }
@@ -306,6 +332,8 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
    const key=`${orgId}/${upload.id}`,stored=await store.head(key);
    if(!stored)throw new HttpError(409,'파일 업로드가 아직 끝나지 않았어요. 다시 시도해 주세요.');
    if(stored.size!==upload.size){await store.delete(key);await db.prepare('DELETE FROM file_uploads WHERE id=? AND org_id=?').bind(upload.id,orgId).run();throw new HttpError(400,'원본 크기가 일치하지 않아요. 파일을 다시 선택해 주세요.');}
+   const scanObject=await store.get(key);if(!scanObject)throw new HttpError(409,'검사할 파일이 없어요.');
+   await indexFile(db,orgId,upload.id,upload.name,new Uint8Array(await new Response(scanObject.body).arrayBuffer()));
    // Recheck role/assignment after the external Storage request; revision guards close the race.
    const fresh=await org(orgId);if(upload.project_id)projectAccess(fresh.actor,upload.project_id);
    if(fresh.actor.role==='viewer')throw new HttpError(403,'업로드 권한이 변경됐어요.');
@@ -328,6 +356,7 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
    const filename=decodeURIComponent(req.headers.get('X-File-Name')??'file').replace(/[\x00-\x1f/\\]/g,'_').slice(0,255)||'file';
    const total=await db.prepare('SELECT COALESCE(SUM(size),0) AS n FROM files WHERE org_id=?').bind(orgId).first<{n:number}>();if((total?.n??0)+declared>500*1024*1024)throw new HttpError(413,'조직 파일 저장 한도 500MB에 도달했어요.');
    const id=uuid(),createdAt=timestamp(),key=`${orgId}/${id}`;
+   await indexFile(db,orgId,id,filename,new Uint8Array(bytes));
    await env.BUCKET.put(key,bytes,{httpMetadata:{contentType:'application/octet-stream'}});
    const fresh=await org(orgId);projectAccess(fresh.actor,pid);if(fresh.actor.role==='viewer')throw new HttpError(403,'업로드 권한이 변경됐어요.');
    const saved=await db.batch([db.prepare("INSERT INTO files (id,org_id,project_id,uploader_id,name,size,created_at) SELECT ?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM organizations WHERE id=? AND revision=? AND status='active')").bind(id,orgId,pid,user.userId,filename,declared,createdAt,orgId,fresh.row.revision)]);
@@ -336,7 +365,8 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
   }
   if(method==='GET'&&parts[3]){
    const f=await db.prepare('SELECT * FROM files WHERE id=? AND org_id=?').bind(parts[3],orgId).first<any>();if(!f)throw new HttpError(404,'파일이 없어요.');if(f.project_id)projectAccess(actor,f.project_id);else if(f.uploader_id!==user.userId&&!isManager(actor.role))throw new HttpError(403,'본인이 올린 미분류 원본만 볼 수 있어요.');
-   const linked=state.documents.some(d=>d.projectId===f.project_id&&d.versions.some(v=>v.blobKey===f.id))||(!f.project_id&&(state.intakeItems??[]).some(i=>!i.projectId&&i.version.blobKey===f.id));if(!linked&&f.uploader_id!==user.userId)throw new HttpError(403,'아직 등록되지 않은 원본이에요.');
+   const frozen=[...state.reports,...(state.annualReports??[])].some(r=>r.artifacts?.some(a=>a.file.blobKey===f.id));const template=isManager(actor.role)&&!!await db.prepare('SELECT id FROM report_templates WHERE org_id=? AND file_id=?').bind(orgId,f.id).first();
+   const linked=frozen||template||state.documents.some(d=>d.projectId===f.project_id&&d.versions.some(v=>v.blobKey===f.id))||(!f.project_id&&(state.intakeItems??[]).some(i=>!i.projectId&&i.version.blobKey===f.id));if(!linked&&f.uploader_id!==user.userId)throw new HttpError(403,'아직 등록되지 않은 원본이에요.');
    if(env.BUCKET?.signDownload){
     const signedUrl=await env.BUCKET.signDownload(`${orgId}/${f.id}`,f.name);
     return parts[4]==='url'?json({url:signedUrl}):new Response(null,{status:303,headers:{Location:signedUrl,'Cache-Control':'private, no-store','Referrer-Policy':'no-referrer'}});
@@ -345,7 +375,12 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
    return new Response(object.body,{headers:{'Content-Type':'application/octet-stream','Content-Disposition':`attachment; filename*=UTF-8''${encodeURIComponent(f.name)}`,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; sandbox"}});
   }
  }
+ if(parts[2]==='leave'&&method==='POST'){
+  if(actor.role==='owner'||hasResponsibilities(state,actor.memberId))throw new HttpError(400,'대표 권한과 진행 중인 업무를 인수인계한 뒤 탈퇴해 주세요.');
+  await adminWrite(ctx,[db.prepare("UPDATE memberships SET active=0 WHERE id=? AND org_id=? AND EXISTS(SELECT 1 FROM organizations WHERE id=? AND revision=?)").bind(actor.memberId,orgId,orgId,row.revision),db.prepare('DELETE FROM project_members WHERE member_id=? AND org_id=? AND EXISTS(SELECT 1 FROM organizations WHERE id=? AND revision=?)').bind(actor.memberId,orgId,orgId,row.revision)],'조직 자진 탈퇴');return json({ok:true});
+ }
  if(parts[2]==='admin'){
+  if(parts[3]==='handover'&&method==='POST')return json(await handover(db,state,actor,row.storage_version,row.body,await body(req)));
   requireManager(actor);
   if(parts[3]==='join-keys'&&method==='GET')return json({keys:await listJoinKeys(db,orgId)});
   if(method==='GET')return json({members:(await db.prepare('SELECT m.id,m.role,m.active,u.name,u.email FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.org_id=?').bind(orgId).all()).results,projects:state.projects.map(p=>({id:p.id,name:p.name})),assignments:(await db.prepare('SELECT project_id,member_id FROM project_members WHERE org_id=?').bind(orgId).all()).results,invitations:(await db.prepare('SELECT id,email,role,status,expires_at FROM invitations WHERE org_id=? ORDER BY created_at DESC LIMIT 100').bind(orgId).all()).results,audit:(await db.prepare('SELECT id,actor_id,action,created_at FROM operations WHERE org_id=? ORDER BY created_at DESC LIMIT 100').bind(orgId).all()).results});
@@ -374,7 +409,7 @@ async function dispatch(req:Request, env:Services, identity:Identity|null):Promi
   }
   if(parts[3]==='members'&&parts[4]&&method==='POST'){
    const input=roleSchema.parse(await body(req));const target=await db.prepare('SELECT role FROM memberships WHERE id=? AND org_id=?').bind(parts[4],orgId).first<{role:Role}>();
-   if(!target)throw new HttpError(404,'구성원을 찾지 못했어요.');if(target.role==='owner')throw new HttpError(403,'조직 대표는 이 화면에서 변경할 수 없어요.');
+   if(!target)throw new HttpError(404,'구성원을 찾지 못했어요.');if(!input.active&&hasResponsibilities(state,parts[4]))throw new HttpError(400,'진행 중인 업무·결재를 인수인계한 뒤 이용을 중지해 주세요.');if(target.role==='owner')throw new HttpError(403,'조직 대표는 이 화면에서 변경할 수 없어요.');
    if(actor.role!=='owner'&&(target.role==='admin'||input.role==='admin'))throw new HttpError(403,'관리자 권한 변경은 조직 대표만 할 수 있어요.');
    await adminWrite(ctx,[db.prepare(`UPDATE memberships SET role=?,active=? WHERE id=? AND org_id=? AND ${guard}`).bind(input.role,input.active?1:0,parts[4],orgId,orgId,row.revision),db.prepare(`DELETE FROM project_members WHERE member_id=? AND org_id=? AND ?=0 AND ${guard}`).bind(parts[4],orgId,input.active?1:0,orgId,row.revision)],'구성원 역할·이용 상태 변경');return json({ok:true});
   }

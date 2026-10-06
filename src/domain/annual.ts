@@ -1,6 +1,6 @@
 import {annualBudget} from './annual-budget';
 import type { AnnualGoal, AnnualPlan, AnnualReport, GoalSummary, Workspace } from './types';
-import { attainment, metricSummary, ownerName, uid } from './selectors';
+import { attainment, metricSummary, ownerName, uid, confirmedMeasurements } from './selectors';
 import {expenseTotals,financeSnapshot} from './finance-selectors';
 
 export function annualGoalSummary(s:Workspace,g:AnnualGoal,end:string,start?:string):GoalSummary {
@@ -13,7 +13,8 @@ export function annualGoalSummary(s:Workspace,g:AnnualGoal,end:string,start?:str
   if(metrics.some(m=>m.warning?.includes('기간 경계')))problems.push('선택한 기간에 걸친 기록이 있어요. 기간별로 나누어 확인한 뒤 합산해 주세요.');
   if(g.aggregation==='sum'&&g.linkIds.some(id=>{const i=s.indicators.find(i=>i.id===id);const p=s.projects.find(p=>p.id===i?.projectId);return i?.aggregation==='cumulative-snapshot'&&p&&p.start<`${plan?.year}-01-01`;}))problems.push('전년도부터의 누적 지표는 연간 실적으로 합산할 수 없어요. 연도별 지표로 분리해 주세요.');
   const canSum=g.aggregation==='sum'&&!problems.length;
-  const actual=canSum?metrics.reduce((n,m)=>n+m.actual!,0):null;
+  const distinct=g.linkIds.length>0&&g.linkIds.every(id=>s.indicators.find(i=>i.id===id)?.uniqueParticipants);
+  const actual=canSum?(distinct?new Set(g.linkIds.flatMap(id=>{const i=s.indicators.find(i=>i.id===id)!;const rows=confirmedMeasurements(s,i,end);return (i.aggregation==='cumulative-snapshot'?rows.slice(0,1):rows.filter(m=>(m.periodStart??m.asOf)>=from)).flatMap(m=>m.participantKeys??[]);})).size:metrics.reduce((n,m)=>n+m.actual!,0)):null;
   const forecast=g.aggregation==='sum'&&metrics.length&&metrics.every(m=>m.forecast!==null)?metrics.reduce((n,m)=>n+m.forecast!,0):null;
   return {id:g.id,name:g.name,unit:g.unit,target:g.target,actual,forecast,rate:attainment(actual,g.target,g.direction),definition:g.definition,warning:problems.join(' '),metrics};
 }

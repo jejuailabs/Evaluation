@@ -155,14 +155,14 @@ test('작업실 첫 로딩은 한 요청·두 DB 트랜잭션으로 끝내며 �
 
 function directStore(){
  const objects=new Map<string,number>();
- env.BUCKET={put:async()=>{},get:async()=>null,delete:async key=>{objects.delete(key);},
+ env.BUCKET={put:async()=>{},get:async key=>objects.has(key)?{body:new Uint8Array(objects.get(key)!)}:null,delete:async key=>{objects.delete(key);},
   signUpload:async key=>`https://storage.example/upload/${key}?token=test-only`,head:async key=>objects.has(key)?{size:objects.get(key)!}:null,
   signDownload:async(key,name)=>`https://storage.example/download/${key}?download=${encodeURIComponent(name)}`};
  return objects;
 }
 test('직접 업로드: 권한 검사→원본 확인→등록·재시도→권한 있는 서명 다운로드',async()=>{
  const orgId=await create(),pid=await project(orgId),mid=await join(orgId),objects=directStore();
- const path=`organizations/${orgId}/files`,input={projectId:pid,name:'원본.hwpx',size:8*1024*1024};
+ const path=`organizations/${orgId}/files`,input={projectId:pid,name:'원본.bin',size:8*1024*1024};
  assert.equal((await call(`${path}/prepare`,member,input)).status,403);
  await call(`organizations/${orgId}/admin/assignments`,owner,{projectId:pid,memberId:mid,assigned:true});
  const prepared=await call(`${path}/prepare`,member,input);assert.equal(prepared.status,201);assert.ok(prepared.uploadUrl.includes(prepared.id));
@@ -180,7 +180,7 @@ test('직접 업로드: 권한 검사→원본 확인→등록·재시도→권�
 test('직접 업로드: 파일 크기 변조·만료·권한 회수는 원본 등록을 막음',async()=>{
  const orgId=await create(),pid=await project(orgId),mid=await join(orgId),objects=directStore(),path=`organizations/${orgId}/files`;
  await call(`organizations/${orgId}/admin/assignments`,owner,{projectId:pid,memberId:mid,assigned:true});
- const reserve=()=>call(`${path}/prepare`,member,{projectId:pid,name:'field.xlsx',size:100});
+ const reserve=()=>call(`${path}/prepare`,member,{projectId:pid,name:'field.txt',size:100});
  const wrong=await reserve();objects.set(`${orgId}/${wrong.id}`,101);assert.equal((await call(`${path}/complete`,member,{id:wrong.id})).status,400);assert.equal(objects.size,0);
  const expired=await reserve();objects.set(`${orgId}/${expired.id}`,100);await env.DB.prepare('UPDATE file_uploads SET expires_at=? WHERE id=?').bind('2000-01-01',expired.id).run();
  assert.equal((await call(`${path}/complete`,member,{id:expired.id})).status,410);
@@ -321,7 +321,9 @@ test('프로젝트 배정과 퇴사: 미배정 데이터 숨김, 배정 후 접�
  assert.equal((await call(`organizations/${orgId}/admin`,member)).status,403);
  await call(`organizations/${orgId}/admin/members/${mid}`,owner,{role:'viewer',active:true});
  assert.equal((await cmd(orgId,{type:'task.status',projectId:pid,taskId:task.task.id,status:'done'},member)).status,403);
- await call(`organizations/${orgId}/admin/members/${mid}`,owner,{role:'member',active:false});
+ assert.equal((await call(`organizations/${orgId}/admin/members/${mid}`,owner,{role:'member',active:false})).status,400);
+ await cmd(orgId,{type:'task.status',projectId:pid,taskId:task.task.id,status:'done'});
+ assert.equal((await call(`organizations/${orgId}/admin/members/${mid}`,owner,{role:'member',active:false})).status,200);
  assert.equal((await load(orgId,member)).status,403);
 });
 test('동시 저장·재시도: 동일 요청은 한 번, 다른 내용 재사용과 오래된 버전 거부',async()=>{
@@ -481,7 +483,7 @@ test('미분류 자료함: 프로젝트 없는 업로드·개인 격리·관리�
  const second:Identity={userId:'intake-peer',email:'peer@test.example',displayName:'다른 구성원'};
  const invitation=await call(`${root}/admin/invitations`,owner,{email:second.email,role:'member'});
  await call('invitations/accept',second,{token:invitation.url.split('/invite/')[1]});
- const stored=new Map<string,number>();env.BUCKET={put:async()=>{},get:async()=>null,delete:async()=>{},signUpload:async key=>`https://storage.test/${key}`,head:async key=>stored.has(key)?{size:stored.get(key)!}:null,signDownload:async key=>`https://storage.test/download/${key}`};
+ const stored=new Map<string,number>();env.BUCKET={put:async()=>{},get:async key=>stored.has(key)?{body:new Uint8Array(stored.get(key)!)}:null,delete:async()=>{},signUpload:async key=>`https://storage.test/${key}`,head:async key=>stored.has(key)?{size:stored.get(key)!}:null,signDownload:async key=>`https://storage.test/download/${key}`};
  const prep=await call(`${root}/files/prepare`,member,{projectId:null,name:'회의 녹음.mp3',size:20});assert.equal(prep.status,201);
  stored.set(`${orgId}/${prep.id}`,20);
  assert.equal((await call(`${root}/files/complete`,second,{id:prep.id})).status,410);

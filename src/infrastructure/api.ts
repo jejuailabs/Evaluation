@@ -27,7 +27,7 @@ export async function api<T=any>(path:string,data?:unknown,method=data===undefin
  }finally{clearTimeout(timer);options.signal?.removeEventListener('abort',cancel);}
 }
 export const loadCloud=(orgId:string)=>api<CloudWorkspace>(`organizations/${encodeURIComponent(orgId)}/workspace`);
-export const sendCommand=(orgId:string,command:Command,revision:number,id:string)=>api<CloudWorkspace>(`organizations/${encodeURIComponent(orgId)}/commands`,{id,revision,command});
+export const sendCommand=(orgId:string,command:Command,revision:number,id:string,baseProjectHash?:string)=>api<CloudWorkspace>(`organizations/${encodeURIComponent(orgId)}/commands`,{id,revision,command,baseProjectHash});
 export async function uploadCloud(orgId:string,projectId:string|null,file:File):Promise<DocumentVersion>{
  if(!file.size||file.size>25*1024*1024)throw new Error('비어 있지 않은 25MB 이내 파일을 선택해 주세요.');
  const path=`organizations/${encodeURIComponent(orgId)}/files`;
@@ -39,7 +39,7 @@ export async function uploadCloud(orgId:string,projectId:string|null,file:File):
 }
 export async function readCloud(orgId:string,version:DocumentVersion):Promise<Blob>{
  if(version.inlineText!==undefined)return new Blob([version.inlineText],{type:'text/plain;charset=utf-8'});
- const signed=await api<{url:string}>(`organizations/${encodeURIComponent(orgId)}/files/${encodeURIComponent(version.id)}/url`);
+ const signed=await api<{url:string}>(`organizations/${encodeURIComponent(orgId)}/files/${encodeURIComponent(version.blobKey??version.id)}/url`);
  const response=await fetch(signed.url,{credentials:'omit',cache:'no-store'});
  if(!response.ok)throw new ApiError(response.status,'원본을 받지 못했어요. 다시 시도해 주세요.');
  return response.blob();

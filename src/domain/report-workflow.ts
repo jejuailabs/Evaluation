@@ -10,12 +10,12 @@ export const submissionChannels = { email:'이메일', portal:'기관 시스템'
 export type ReportAction =
   | { action:'request'; recipient:string; reason:string }
   | { action:'approve'|'return'|'withdraw'|'revoke'; reason:string }
-  | { action:'submit'; date:string; recipient:string; channel:keyof typeof submissionChannels; reference:string; format:'docx'|'xlsx'|'html'|'pdf'; reason:string }
+  | { action:'submit'; date:string; recipient:string; channel:keyof typeof submissionChannels; reference:string; format:'docx'|'xlsx'|'html'|'pdf'|'hwpx'|'zip'; artifactId?:string; reason:string }
   | { action:'void'; submissionId:string; reason:string }
   | { action:'revise'; note:string; reason:string };
 export interface ReportHistory { id:string; at:string; actorId:string; actorName:string; action:ReportAction['action']; reason:string; status:ReportStatus; relatedId?:string }
-export interface ReportSubmission { id:string; date:string; recipient:string; channel:keyof typeof submissionChannels; reference:string; format:'docx'|'xlsx'|'html'|'pdf'; note:string; at:string; actorId:string; actorName:string; voided?:{at:string;actorId:string;actorName:string;reason:string} }
-export interface ReportMetadata { createdById?:string; previousReportId?:string; revisionReason?:string; workflow?:{ version:number; status:ReportStatus; recipient:string; history:ReportHistory[]; submissions:ReportSubmission[] } }
+export interface ReportSubmission { id:string; date:string; recipient:string; channel:keyof typeof submissionChannels; reference:string; format:'docx'|'xlsx'|'html'|'pdf'|'hwpx'|'zip'; artifactId?:string; note:string; at:string; actorId:string; actorName:string; voided?:{at:string;actorId:string;actorName:string;reason:string} }
+export interface ReportMetadata { artifacts?:{id:string;file:import('./types').DocumentVersion;sha256:string;at:string;actorId:string}[]; createdById?:string; previousReportId?:string; revisionReason?:string; workflow?:{ version:number; status:ReportStatus; recipient:string; history:ReportHistory[]; submissions:ReportSubmission[] } }
 export const reportStatus = (r:ReportMetadata):ReportStatus => r.workflow?.status??'draft';
 export const reportVersion = (r:ReportMetadata) => r.workflow?.version??0;
 export const reportActionLabels:Record<ReportAction['action'],string> = {request:'검토 요청',approve:'내부 승인',return:'보완 요청',withdraw:'검토 요청 철회',revoke:'승인 철회',submit:'제출 기록',void:'제출 기록 무효화',revise:'수정본 생성'};
@@ -26,6 +26,11 @@ export function findReport(s:Workspace,kind:ReportKind,id:string):Report|AnnualR
 }
 function required(v:string,label:string){if(!v.trim())throw new Error(`${label}을 입력해 주세요.`);}
 export function applyReportWorkflow(s:Workspace,c:Command,now:string,actorId:string):{projectId:string;action:string}|null {
+  if(c.type==='report.asset'){
+   const report=findReport(s,c.kind,c.reportId);if(!['approved','submitted'].includes(reportStatus(report)))throw new Error('승인한 보고서에 제출 파일을 고정해 주세요.');
+   if(report.artifacts?.some(a=>a.id===c.artifact.id))throw new Error('이미 고정한 파일이에요.');
+   (report.artifacts??=[]).push({...c.artifact,at:now,actorId});return {projectId:'projectId' in report?report.projectId:'',action:'제출 파일 고정 · '+report.title};
+  }
   if(c.type!=='report.workflow')return null;
   const r=findReport(s,c.kind,c.reportId),op=c.operation;
   if(c.expectedVersion!==reportVersion(r))throw new Error('다른 사람이 보고서를 처리했어요. 최신 상태를 확인하고 다시 시도해 주세요.');
@@ -42,12 +47,13 @@ export function applyReportWorkflow(s:Workspace,c:Command,now:string,actorId:str
     case 'withdraw': allow('in-review');w.status='draft';break;
     case 'revoke': allow('approved');w.status='draft';break;
     case 'submit': {
-      allow('approved','submitted');required(op.recipient,'제출처');required(op.reference,'접수번호 또는 제출 확인 정보');
+      allow('approved','submitted');if(op.artifactId&&!r.artifacts?.some(a=>a.id===op.artifactId))throw new Error('이 보고서에 고정한 제출 파일을 선택해 주세요.');required(op.recipient,'제출처');required(op.reference,'접수번호 또는 제출 확인 정보');
+      if(op.artifactId&&r.artifacts!.find(a=>a.id===op.artifactId)!.file.name.split('.').at(-1)?.toLowerCase()!==op.format)throw new Error('고정한 제출 파일과 같은 형식을 선택해 주세요.');
       if(!/^\d{4}-\d{2}-\d{2}$/.test(op.date)||!Number.isFinite(Date.parse(op.date))||new Date(op.date).toISOString().slice(0,10)!==op.date||op.date>new Date(Date.parse(now)+9*3600000).toISOString().slice(0,10))throw new Error('제출일은 오늘까지의 실제 날짜로 입력해 주세요.');
       const approval=[...w.history].reverse().find(h=>h.action==='approve');
       if(!approval||op.date<new Date(Date.parse(approval.at)+9*3600000).toISOString().slice(0,10))throw new Error('승인일 이후의 제출만 기록할 수 있어요.');
       if(active.some(x=>x.date===op.date&&x.recipient===op.recipient.trim()&&x.reference===op.reference.trim()&&x.format===op.format))throw new Error('같은 제출 기록이 이미 있어요.');
-      relatedId=uid();w.submissions.push({id:relatedId,date:op.date,recipient:op.recipient.trim(),channel:op.channel,reference:op.reference.trim(),format:op.format,note:op.reason,at:now,actorId,actorName});w.status='submitted';break;
+      relatedId=uid();w.submissions.push({id:relatedId,date:op.date,recipient:op.recipient.trim(),channel:op.channel,reference:op.reference.trim(),format:op.format,artifactId:op.artifactId,note:op.reason,at:now,actorId,actorName});w.status='submitted';break;
     }
     case 'void': {
       allow('submitted');const entry=w.submissions.find(x=>x.id===op.submissionId&&!x.voided);

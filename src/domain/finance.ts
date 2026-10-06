@@ -45,11 +45,18 @@ export function applyFinance(s:Workspace,c:Command,now:string,actorId:string):{p
       Object.assign(e,{title:c.fields.title,amount:c.fields.amount,date:c.fields.date,ownerId:c.fields.ownerId,evidence:c.fields.evidence,budgetLineId:c.fields.budgetLineId,description:c.fields.description});e.workflowVersion=1;return log('집행 내용 수정',c.reason,previous);
     }
     case 'expense.evidence':{editable();resolveEvidence(s,e.projectId,c.evidence);e.evidence=c.evidence;return log('집행 증빙 연결');}
-    case 'expense.submit':{editable();fields(s,e.projectId,e);if(!e.evidence)throw new Error('견적서나 지출 근거를 자료함에 등록하고 연결해 주세요.');e.status='submitted';e.workflowVersion=1;return log('검토 요청');}
-    case 'expense.review':{if(e.status!=='submitted')throw new Error('검토 요청된 지출만 검토할 수 있어요.');text(c.reason,'검토 의견');if(c.decision==='confirmed')checkApproval();else if(c.decision!=='returned')throw new Error('검토 결과를 선택해 주세요.');e.status=c.decision;return log(c.decision==='confirmed'?'집행 승인':'보완 요청',c.reason);}
+    case 'expense.submit':{editable();fields(s,e.projectId,e);if(!e.evidence)throw new Error('견적서나 지출 근거를 자료함에 등록하고 연결해 주세요.');const policy=s.organization.approvalPolicy;
+      if(policy?.separateDuties&&policy.approverIds.some(id=>id===actorId||id===e.ownerId))throw new Error('작성자·담당자를 제외한 결재선을 설정해 주세요.');
+      e.approvalRoute=[...(policy?.approverIds??[])];e.separateDuties=policy?.separateDuties??false;e.approvals=[];e.requestedById=actorId;e.status='submitted';e.workflowVersion=1;return log('검토 요청');}
+    case 'expense.review':{if(e.status!=='submitted')throw new Error('검토 요청된 지출만 검토할 수 있어요.');text(c.reason,'검토 의견');if(c.decision==='confirmed'){
+       if(e.separateDuties&&(actorId===e.requestedById||actorId===e.ownerId))throw new Error('작성자·담당자는 자신의 집행을 승인할 수 없어요.');
+       const next=e.approvalRoute?.[(e.approvals??[]).length];if(next&&next!==actorId)throw new Error('현재 순서의 결재자만 승인할 수 있어요.');
+       checkApproval();(e.approvals??=[]).push({actorId,at:now,reason:c.reason});
+       if(e.approvalRoute?.length&&e.approvals.length<e.approvalRoute.length)return log('단계 승인',c.reason);
+      }else if(c.decision!=='returned')throw new Error('검토 결과를 선택해 주세요.');e.status=c.decision;return log(c.decision==='confirmed'?'집행 승인':'보완 요청',c.reason);}
     case 'expense.cancel':{if(e.status==='cancelled')throw new Error('이미 취소한 요청이에요.');if(expensePaid(e)>0)throw new Error('유효한 지급 기록이 있어요. 실제 환불은 별도 정산이 필요해요.');text(c.reason,'취소 이유');e.status='cancelled';return log('집행 취소',c.reason);}
     case 'expense.pay':{
-      if(e.status!=='confirmed')throw new Error('승인된 미지급 지출에만 지급을 기록할 수 있어요.');const p=c.payment;money(p.amount);if(!p.amount||p.amount>e.amount-expensePaid(e))throw new Error('지급액은 0원보다 크고 남은 미지급액 이하여야 해요.');
+      if(e.status!=='confirmed')throw new Error('승인된 미지급 지출에만 지급을 기록할 수 있어요.');if(e.separateDuties&&e.approvals?.some(a=>a.actorId===actorId))throw new Error('승인자와 다른 담당자가 지급을 기록해 주세요.');const p=c.payment;money(p.amount);if(!p.amount||p.amount>e.amount-expensePaid(e))throw new Error('지급액은 0원보다 크고 남은 미지급액 이하여야 해요.');
       if(s.expenses.some(x=>x.payments?.some(y=>y.id===p.id)))throw new Error('이미 등록한 지급 기록이에요.');date(p.date);const project=getProject(s,e.projectId);if(p.date<e.date||p.date>project.end||p.date>today())throw new Error('지급일은 집행일부터 오늘 또는 프로젝트 종료일까지예요.');text(p.note,'지급 메모');resolveEvidence(s,e.projectId,p.evidence);
       (e.payments??=[]).push({...p,recordedAt:now,actorId});if(expensePaid(e)===e.amount)e.status='paid';return log('지급 기록',`${p.amount}원 · ${p.date} · ${p.note}`);
     }

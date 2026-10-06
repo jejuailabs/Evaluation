@@ -40,7 +40,7 @@ export function Form({ submit, children, label = '저장' }: { submit: (data: Fo
 export function Field({ label, children }: { label: string; children: ReactNode }) { return <label className="field"><span>{label}</span>{children}</label>; }
 export function Members({ s, name = 'ownerId', initial }: { s: Workspace; name?: string; initial?: string }) { return <select name={name} defaultValue={initial}>{s.members.map(m => <option key={m.id} value={m.id}>{m.name} · {m.role}</option>)}</select>; }
 export function EvidenceSelect({ s, projectId, required = true,initial }: { s: Workspace; projectId: string; required?: boolean;initial?:EvidenceRef }) {
-  return <select name="evidence" defaultValue={initial?`${initial.documentId}|${initial.versionId}`:''} required={required}><option value="">자료와 버전을 선택해 주세요</option>{s.documents.filter(d => d.orgId === s.organization.id && d.projectId === projectId).flatMap(d => d.versions.map((v,i) => <option key={v.id} value={`${d.id}|${v.id}`}>{d.title} · v{i+1}</option>))}</select>;
+  return <select name="evidence" defaultValue={initial?`${initial.documentId}|${initial.versionId}`:''} required={required}><option value="">자료와 버전을 선택해 주세요</option>{s.documents.filter(d => d.orgId === s.organization.id && (d.projectId === projectId||d.referenceProjectIds?.includes(projectId))).flatMap(d => d.versions.map((v,i) => <option key={v.id} value={`${d.id}|${v.id}`}>{d.title} · v{i+1}</option>))}</select>;
 }
 export function evidenceData(f: FormData): EvidenceRef | undefined { const value = String(f.get('evidence') ?? ''); if (!value) return undefined; const [documentId, versionId] = value.split('|'); return { documentId, versionId }; }
 export const textValue = (f: FormData, key: string) => String(f.get(key) ?? '').trim();

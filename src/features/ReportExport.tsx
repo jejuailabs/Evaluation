@@ -16,7 +16,8 @@ export function ReportExport({ report }: { report: ExportReport }) {
     setBusy(true); setError('');
     const name = exportTitle(report).replace(/[\\/:*?"<>|]/g, '_').slice(0, 70)+`_${report.id.slice(0,8)}_v${report.workflow?.version??0}`;
     try {
-      if (format === 'docx') { const { reportDOCX } = await import('../infrastructure/report-docx'); file(await reportDOCX(report), `${name}.docx`); }
+      if(format==='hwpx'){const {reportHWPX}=await import('../infrastructure/report-hwpx');file(new Blob([new Uint8Array(reportHWPX(report))],{type:'application/hwp+zip'}),`${name}.hwpx`);}
+      else if (format === 'docx') { const { reportDOCX } = await import('../infrastructure/report-docx'); file(await reportDOCX(report), `${name}.docx`); }
       else if (format === 'xlsx') { const { reportXLSX } = await import('../infrastructure/report-xlsx'); file(new Blob([new Uint8Array(reportXLSX(report))], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `${name}.xlsx`); }
       else if (format === 'html') file(new Blob([html()], { type: 'text/html;charset=utf-8' }), `${name}.html`);
       else {
@@ -28,5 +29,5 @@ export function ReportExport({ report }: { report: ExportReport }) {
     } catch { setError('파일을 만들지 못했어요. 잠시 후 다시 시도해 주세요.'); }
     finally { setBusy(false); }
   }
-  return <div><div className="export-controls"><select aria-label="보고서 파일 형식" value={format} onChange={e => setFormat(e.target.value)} disabled={busy}><option value="docx">Word 문서</option><option value="xlsx">Excel 집계표</option><option value="html">웹 문서</option><option value="pdf">인쇄·PDF 저장</option></select><button className="button secondary" disabled={busy} onClick={save}>{busy ? '파일 만드는 중…' : format === 'pdf' ? '인쇄 창 열기' : '파일 내려받기'}</button></div>{prepared&&<p className="export-ready" role="status">파일이 준비됐어요. <a href={prepared.url} download={prepared.name}>준비된 파일 다시 받기</a></p>}{format === 'pdf' && <small>인쇄 창에서 ‘PDF로 저장’을 선택하세요.</small>}{error && <p role="alert" className="export-error">{error}</p>}</div>;
+  return <div><div className="export-controls"><select aria-label="보고서 파일 형식" value={format} onChange={e => setFormat(e.target.value)} disabled={busy}><option value="hwpx">한글 HWPX</option><option value="docx">Word 문서</option><option value="xlsx">Excel 집계표</option><option value="html">웹 문서</option><option value="pdf">인쇄·PDF 저장</option></select><button className="button secondary" disabled={busy} onClick={save}>{busy ? '파일 만드는 중…' : format === 'pdf' ? '인쇄 창 열기' : '파일 내려받기'}</button></div>{prepared&&<p className="export-ready" role="status">파일이 준비됐어요. <a href={prepared.url} download={prepared.name}>준비된 파일 다시 받기</a></p>}{format === 'pdf' && <small>인쇄 창에서 ‘PDF로 저장’을 선택하세요.</small>}{error && <p role="alert" className="export-error">{error}</p>}</div>;
 }

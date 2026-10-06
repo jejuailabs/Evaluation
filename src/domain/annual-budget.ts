@@ -37,7 +37,9 @@ export function validateAnnualBudget(before:Workspace,s:Workspace){
    if(spent>allocation)throw new Error(`${p.year}년 ${project.name}의 승인 집행이 연도 배정액을 넘어요. 연간 계획에서 배분을 먼저 조정해 주세요.`);
   }
   if(p.status==='closed'){
-   const relevant=(w:Workspace)=>w.expenses.filter(e=>e.date>=from&&e.date<=to||(e.payments??[]).some(x=>x.date>=from&&x.date<=to));
+   const relevant=(w:Workspace)=>w.expenses.filter(e=>e.date>=from&&e.date<=to||(e.payments??[]).some(x=>x.date>=from&&x.date<=to)).map(e=>{
+    const {payments,history,status,...base}=e;return {...base,status:status==='paid'?'confirmed':status,payments:payments?.filter(p=>p.date>=from&&p.date<=to),history:history?.filter(h=>!['지급 기록','지급 기록 무효 처리'].includes(h.action))};
+   });
    if(JSON.stringify(relevant(before))!==JSON.stringify(relevant(s)))throw new Error(`${p.year}년이 마감되어 집행을 바꿀 수 없어요. 연간 계획을 다시 열어 주세요.`);
   }
  }

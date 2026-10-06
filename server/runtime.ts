@@ -29,6 +29,6 @@ export function getRuntime(): Partial<Services> & AuthEnv {
   }
   cached = { AUTH_PROVIDER: 'supabase', APP_URL: config.APP_URL, SUPABASE_URL: config.SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY: config.SUPABASE_PUBLISHABLE_KEY,
     DB, BUCKET: config.SUPABASE_URL && config.SUPABASE_SECRET_KEY ? createObjectStore(config.SUPABASE_URL, config.SUPABASE_SECRET_KEY, config.SUPABASE_STORAGE_BUCKET) : undefined,
-    PLATFORM_ADMIN_USER_IDS: process.env.PLATFORM_ADMIN_USER_IDS, OPENAI_API_KEY: process.env.OPENAI_API_KEY, OPENAI_MODEL: process.env.OPENAI_MODEL };
+    WORKER_SECRET:process.env.WORKER_SECRET, PLATFORM_ADMIN_USER_IDS: process.env.PLATFORM_ADMIN_USER_IDS, OPENAI_API_KEY: process.env.OPENAI_API_KEY, OPENAI_MODEL: process.env.OPENAI_MODEL };
   return cached;
 }

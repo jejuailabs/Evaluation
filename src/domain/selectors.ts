@@ -22,7 +22,7 @@ export function budgetSummary(s: Workspace, projectId: string, asOf?: string,per
   return { allocated: project.budget, committed:t.committed,spent:t.spent,paid:t.paid,available:project.budget-t.approvedThrough-t.reservedThrough,unpaid:t.unpaid };
 }
 export function resolveEvidence(s: Workspace, projectId: string, ref: EvidenceRef) {
-  const document = projectRows(s, s.documents, projectId).find(x => x.id === ref.documentId);
+  getProject(s,projectId);const document=s.documents.find(x=>x.orgId===s.organization.id&&x.id===ref.documentId&&(x.projectId===projectId||x.referenceProjectIds?.includes(projectId))&&s.projects.some(p=>p.id===x.projectId));
   const version = document?.versions.find(x => x.id === ref.versionId);
   if (!document || !version) throw new Error('같은 프로젝트의 자료와 실제 버전을 연결해 주세요.');
   return { document, version };
@@ -33,7 +33,7 @@ export function attainment(actual:number|null,target:number|null,direction:'high
   return target>0?actual/target*100:null;
 }
 export function confirmedMeasurements(s:Workspace,i:Indicator,asOf= today()) {
-  const rows=projectRows(s,s.measurements,i.projectId).filter(m=>m.indicatorId===i.id&&m.status==='confirmed'&&m.asOf<=asOf);
+  const rows=projectRows(s,s.measurements,i.projectId).filter(m=>m.indicatorId===i.id&&m.status==='confirmed'&&m.asOf<=asOf&&(m.definitionVersion??1)===(i.definitionVersion??1));
   const superseded=new Set(rows.map(m=>m.supersedesId).filter(Boolean));
   return rows.filter(m=>!superseded.has(m.id)).sort((a,b)=>b.asOf.localeCompare(a.asOf)||(b.confirmedAt??'').localeCompare(a.confirmedAt??''));
 }
@@ -47,14 +47,16 @@ export function metricSummary(s: Workspace, i: Indicator, asOf = today(), period
   let actual:number|null=m?.value??null;
   if(i.aggregation==='period-sum')actual=rows.length?rows.reduce((n,m)=>n+m.value,0):null;
   if(i.aggregation==='ratio') {const denominator=rows.reduce((n,m)=>n+(m.denominator??0),0);actual=denominator?rows.reduce((n,m)=>n+m.value,0)/denominator*100:null;}
+  if(i.uniqueParticipants)actual=rows.length?new Set(rows.flatMap(m=>m.participantKeys??[])).size:null;
   if(i.aggregation==='qualitative')actual=null;
   const warnings:string[]=[];
+  if(i.needsReview||rows.some(m=>m.needsReview))warnings.push('원본 변경 후 재확인이 필요해요. 이전 근거 버전의 확인값을 표시하고 있어요.');
   if(periodMode&&periodStart&&all.some(m=>(m.periodStart??m.asOf)<periodStart&&m.asOf>=periodStart))warnings.push('기간 경계에 걸친 기록은 나누어 입력해야 집계돼요.');
   if(!periodMode&&periodStart&&periodStart>getProject(s,i.projectId).start)warnings.push('이 값은 해당 분기의 증가분이 아닌, 기준일까지의 누적·최신 상태예요.');
   const evidence = m ? resolveEvidence(s, i.projectId, m.evidence) : null;
   return { id: i.id, name: i.name, unit: i.unit, target: i.target, forecast: i.forecast, actual,
     rate: attainment(actual,i.target,i.direction), asOf: m?.asOf,
-    source: i.source, sourceUrl: i.sourceUrl, definition: i.definition, definitionVersion: i.version,
+    source: i.source, sourceUrl: i.sourceUrl, definition: i.definition, definitionVersion: i.definitionVersion??1,
     evidenceName: evidence?.version.name, evidenceVersionId: evidence?.version.id, note: m?.note,
     outcomeRecords:rows.filter(m=>m.analysisSource).map(({asOf,periodStart,value,denominator,assessment,note,evidence,analysisSource})=>({asOf,periodStart,value,denominator,assessment,note,evidence,analysisSource})),
     evidenceVersionIds:rows.map(m=>m.evidence.versionId),aggregation:i.aggregation,assessment:m?.assessment,records:rows.length,direction:i.direction,rubric:i.rubric,planningSource:i.planningSource,warning:warnings.join(' ') };

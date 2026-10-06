@@ -1,3 +1,6 @@
+import {applyCarryover} from './carryover';
+import {applyWorkManagement,validateTaskGraph,markChangedSource} from './work-management';
+import {applyEvaluation} from './evaluation';
 import { projectSnapshot } from './report-snapshot';
 import { applyReportWorkflow } from './report-workflow';
 import {applyRecurrence} from './recurrence';
@@ -29,8 +32,8 @@ export function execute(original: Workspace, input: Command, now = new Date().to
   const row='project' in command?command.project:'task' in command?command.task:'expense' in command?command.expense:'document' in command?command.document:'indicator' in command?command.indicator:'measurement' in command?command.measurement:command.type==='activity.add'?command.activity:'series' in command?command.series:null;
   const affected='projectId' in command?command.projectId:'line' in command?command.line.projectId:row?('projectId' in row?row.projectId:row.id):'';
   if(affected&&!['project.add','project.update','report.create'].includes(command.type)&&['completed','archived'].includes(s.projects.find(p=>p.id===affected)?.status??''))throw new Error('완료·보관한 프로젝트예요. 계획·상태에서 진행 중으로 다시 열어 주세요.');
-  const extended=command.type==='annual.budget.allocate'?allocateAnnualBudget(s,command,now,actorId):applyRecurrence(s,command,now,actorId)??applyIntake(s,command,now,actorId)??applyFinance(s,command,now,actorId)??applyReportWorkflow(s,command,now,actorId)??applyLifecycle(s,command,now,actorId);
-  if(extended){validateAnnualBudget(original,s);s.revision++;s.events.unshift({id:uid(),...extended,at:now});return s;}
+  const extended=command.type==='annual.budget.allocate'?allocateAnnualBudget(s,command,now,actorId):applyCarryover(s,command,now,actorId)??applyWorkManagement(s,command,now,actorId)??applyEvaluation(s,command,now,actorId)??applyRecurrence(s,command,now,actorId)??applyIntake(s,command,now,actorId)??applyFinance(s,command,now,actorId)??applyReportWorkflow(s,command,now,actorId)??applyLifecycle(s,command,now,actorId);
+  if(extended){validateTaskGraph(s);validateAnnualBudget(original,s);s.revision++;s.events.unshift({id:uid(),...extended,at:now});return s;}
   let projectId = '';
   let action = '';
   switch (command.type) {
@@ -66,7 +69,7 @@ export function execute(original: Workspace, input: Command, now = new Date().to
       if (!d) throw new Error('자료를 찾지 못했어요.');
       uniqueId(d.versions, command.version.id);
       if (!command.version.blobKey && command.version.inlineText === undefined) throw new Error('저장된 원본이 필요해요.');
-      d.versions.push(command.version); projectId = d.projectId; action = `새 버전 등록 · ${d.title}`; break;
+      d.versions.push(command.version); markChangedSource(s,d.id,now); projectId = d.projectId; action = `새 버전 등록 · ${d.title}`; break;
     }
     case 'indicator.add': {
       const i = command.indicator; scope(s, i); uniqueId(s.indicators, i.id); requireText(i.name, '지표 이름'); requireText(i.unit, '단위'); requireText(i.definition, '집계 기준');
@@ -101,6 +104,9 @@ export function execute(original: Workspace, input: Command, now = new Date().to
       if(i.aggregation==='qualitative'&&!['not-yet','partial','achieved'].includes(m.assessment??''))throw new Error('변화 단계를 선택해 주세요.');
       if(m.supersedesId){const old=confirmedMeasurements(s,i).find(x=>x.id===m.supersedesId);if(!old||old.asOf!==m.asOf||old.periodStart!==m.periodStart)throw new Error('현재 확인된 원본과 같은 집계 기간으로 정정해 주세요.');}
       resolveEvidence(s, m.projectId, m.evidence); requireText(m.note, '집계 설명');
+      m.definitionVersion=i.definitionVersion??1;
+      if(i.uniqueParticipants){if(!m.participantKeys?.length||m.participantKeys.some(k=>!/^p_[a-f0-9]{64}$/.test(k)))throw new Error('참여자 익명 식별키를 입력해 주세요.');m.participantKeys=[...new Set(m.participantKeys)];m.value=m.participantKeys.length;}
+      else if(m.participantKeys?.length)throw new Error('참여자 중복 제거 지표에서만 식별키를 입력해 주세요.');
       s.measurements.push(m); projectId = m.projectId; action = `실적 기록 · ${i.name}`; break;
     }
     case 'measurement.confirm': {
@@ -108,6 +114,8 @@ export function execute(original: Workspace, input: Command, now = new Date().to
       if (!m || m.status !== 'pending') throw new Error('확인할 기록을 찾지 못했어요.');
       resolveEvidence(s, m.projectId, m.evidence);
       const i=projectRows(s,s.indicators,m.projectId).find(i=>i.id===m.indicatorId)!;
+      if(m.needsReview)throw new Error('원본 변경 영향을 먼저 재확인해 주세요.');
+      if((m.definitionVersion??1)!==(i.definitionVersion??1))throw new Error('집계 정의가 바뀌었어요. 새 정의로 실적을 다시 기록해 주세요.');
       const active=confirmedMeasurements(s,i);
       if(m.supersedesId&&!active.some(x=>x.id===m.supersedesId))throw new Error('다른 정정이 먼저 확인됐어요. 최신 원본으로 다시 기록해 주세요.');
       if (active.some(x=>x.id!==m.supersedesId&&(i.aggregation==='period-sum'||i.aggregation==='ratio'?x.periodStart!<=m.asOf&&x.asOf>=m.periodStart!:x.asOf===m.asOf)))throw new Error('같은 기준일 또는 겹치는 집계 기간의 확인값이 있어요. 기존 실적의 정정을 사용해 주세요.');
@@ -119,7 +127,7 @@ export function execute(original: Workspace, input: Command, now = new Date().to
     }
     default: throw new Error('지원하지 않는 변경이에요.');
   }
-  validateAnnualBudget(original,s);
+  validateTaskGraph(s);validateAnnualBudget(original,s);
   s.revision++;
   s.events.unshift({ id: uid(), projectId, action, at: now });
   return s;

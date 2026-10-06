@@ -5,16 +5,26 @@ const evidence=z.object({documentId:id,versionId:id}).strict();
 const expenseFields={title:z.string().min(1).max(160),amount:num.int(),date,ownerId:id,evidence:evidence.optional(),budgetLineId:id.optional(),description:text.optional()};
 const version=z.object({id,name:z.string().min(1).max(255),size:num.int(),createdAt:z.string().max(40),blobKey:id}).strict();
 const project=z.object({id,orgId:id,name:z.string().min(1).max(80),purpose:text,start:date,end:date,ownerId:id,budget:num.int(),category:z.string().max(80),status:z.enum(['planning','active','completed','archived']).optional(),closeNote:text.optional()}).strict();
-const task=z.object({...scope,title:z.string().min(1).max(160),due:date,ownerId:id,status:z.enum(['todo','doing','done']),priority:z.enum(['normal','high']).optional(),note:text.optional(),indicatorId:id.optional(),completedAt:z.string().max(40).optional()}).strict();
+const task=z.object({...scope,parentId:id.optional(),dependencyIds:z.array(id).max(100).optional(),title:z.string().min(1).max(160),due:date,ownerId:id,status:z.enum(['todo','doing','done']),priority:z.enum(['normal','high']).optional(),note:text.optional(),indicatorId:id.optional(),completedAt:z.string().max(40).optional()}).strict();
 const template={title:z.string().min(1).max(160),ownerId:id,priority:z.enum(['normal','high']).optional(),note:text.optional(),indicatorId:id.optional()};
 const reportOperation=z.discriminatedUnion('action',[
  z.object({action:z.literal('request'),recipient:z.string().trim().min(1).max(200),reason:text.trim().min(1)}).strict(),
  ...(['approve','return','withdraw','revoke'] as const).map(action=>z.object({action:z.literal(action),reason:text.trim().min(1)}).strict()),
- z.object({action:z.literal('submit'),date,recipient:z.string().trim().min(1).max(200),channel:z.enum(['email','portal','visit','other']),reference:z.string().trim().min(1).max(500),format:z.enum(['docx','xlsx','html','pdf']),reason:text.trim().min(1)}).strict(),
+ z.object({action:z.literal('submit'),date,recipient:z.string().trim().min(1).max(200),channel:z.enum(['email','portal','visit','other']),reference:z.string().trim().min(1).max(500),format:z.enum(['docx','xlsx','html','pdf','hwpx','zip']),artifactId:id.optional(),reason:text.trim().min(1)}).strict(),
  z.object({action:z.literal('void'),submissionId:id,reason:text.trim().min(1)}).strict(),
  z.object({action:z.literal('revise'),note:text,reason:text.trim().min(1)}).strict(),
 ]);
 export const commandSchema=z.discriminatedUnion('type',[
+ z.object({type:z.literal('annual.budget.carryover'),fromPlanId:id,toPlanId:id,projectId:id,amount:num.int().positive(),expenseIds:z.array(id).max(500),date,reason:text.min(1)}).strict(),
+ z.object({type:z.literal('report.asset'),kind:z.enum(['project','annual']),reportId:id,artifact:z.object({id:z.string().uuid(),file:version,sha256:z.string().regex(/^[a-f0-9]{64}$/)}).strict()}).strict(),
+ z.object({type:z.literal('organization.team.save'),team:z.object({id,name:z.string().trim().min(1).max(100),memberIds:z.array(id).max(500)}).strict()}).strict(),
+ z.object({type:z.literal('organization.approval.save'),approverIds:z.array(id).max(10),separateDuties:z.boolean()}).strict(),
+ z.object({type:z.literal('document.restore'),projectId:id,documentId:id,versionId:id,reason:text.min(1)}).strict(),
+ z.object({type:z.literal('document.reference'),projectId:id,sourceProjectId:id,documentId:id,linked:z.boolean()}).strict(),
+ z.object({type:z.literal('source.review'),projectId:id,kind:z.enum(['indicator','measurement']),id,reason:text.min(1)}).strict(),
+ z.object({type:z.literal('indicator.definition'),projectId:id,indicatorId:id,definition:text.min(1),unit:z.string().min(1).max(30),aggregation:z.enum(['cumulative-snapshot','period-sum','ratio','qualitative']),uniqueParticipants:z.boolean(),reason:text.min(1)}).strict(),
+ z.object({type:z.literal('indicator.forecast'),projectId:id,indicatorId:id,calculation:z.object({method:z.enum(['sum','product']),factors:z.array(z.object({name:z.string().min(1).max(100),low:num,base:num,high:num}).strict()).min(1).max(20),assumptions:text.min(1),source:evidence}).strict()}).strict(),
+
  z.object({type:z.literal('report.workflow'),kind:z.enum(['project','annual']),reportId:id,expectedVersion:num.int(),operation:reportOperation}).strict(),
  z.object({type:z.literal('intake.meeting.save'),id,expectedRevision:num.int(),text:z.string().trim().min(1).max(30000),notes:text,reviewed:z.boolean()}).strict(),
  z.object({type:z.literal('task.series.create'),series:z.object({...scope,id:z.string().min(1).max(85),...template,start:date,end:date,frequency:z.enum(['daily','weekly','monthly']),interval:num.int().min(1).max(12)}).strict()}).strict(),
@@ -42,7 +52,7 @@ export const commandSchema=z.discriminatedUnion('type',[
  z.object({type:z.literal('expense.evidence'),projectId:id,expenseId:id,evidence}).strict(),
  z.object({type:z.literal('indicator.add'),indicator:z.object({...scope,name:z.string().min(1).max(160),unit:z.string().max(30),target:num.nullable(),forecast:num.nullable(),forecastNote:text,definition:text,source:z.string().max(150),sourceUrl:z.string().url().optional(),standardId:id.optional(),aggregation:z.enum(['cumulative-snapshot','period-sum','ratio','qualitative']),direction:z.enum(['higher','lower']),rubric:text.optional(),planningSource:z.object({evidence,documentName:z.string().max(255),location:z.string().min(1).max(300),quote:z.string().min(1).max(1500),method:z.enum(['manual','ai']),reviewedAt:z.string().max(40)}).strict().optional(),version:z.literal(1)}).strict()}).strict(),
  z.object({type:z.literal('indicator.revise'),projectId:id,indicatorId:id,target:num.nullable(),forecast:num.nullable(),forecastNote:text,reason:text.min(1)}).strict(),
- z.object({type:z.literal('measurement.add'),aiReceipt:z.string().min(1).max(24000).optional(),measurement:z.object({...scope,indicatorId:id,asOf:date,value:num,note:text,evidence,status:z.literal('pending'),createdAt:z.string().max(40),periodStart:date.optional(),denominator:num.optional(),assessment:z.enum(['not-yet','partial','achieved']).optional(),supersedesId:id.optional()}).strict()}).strict(),
+ z.object({type:z.literal('measurement.add'),aiReceipt:z.string().min(1).max(24000).optional(),measurement:z.object({...scope,indicatorId:id,asOf:date,value:num,participantKeys:z.array(z.string().regex(/^p_[a-f0-9]{64}$/)).max(10000).optional(),note:text,evidence,status:z.literal('pending'),createdAt:z.string().max(40),periodStart:date.optional(),denominator:num.optional(),assessment:z.enum(['not-yet','partial','achieved']).optional(),supersedesId:id.optional()}).strict()}).strict(),
  z.object({type:z.literal('measurement.confirm'),projectId:id,measurementId:id}).strict(),
  z.object({type:z.literal('measurement.reject'),projectId:id,measurementId:id,reason:text.min(1)}).strict(),
  z.object({type:z.literal('report.create'),projectId:id,asOf:date,note:text,periodStart:date.optional()}).strict(),
@@ -53,4 +63,4 @@ export const commandSchema=z.discriminatedUnion('type',[
  z.object({type:z.literal('annual.report.create'),planId:id,start:date,end:date,note:text}).strict(),
  z.object({type:z.literal('activity.add'),activity:z.object({...scope,title:z.string().min(1).max(160),body:text.min(1),date,ownerId:id,taskId:id.optional(),indicatorIds:z.array(id).max(50),evidence:z.array(evidence).max(30)}).strict()}).strict(),
 ]);
-export const envelopeSchema=z.object({id:z.string().uuid(),revision:z.number().int().nonnegative(),command:commandSchema}).strict();
+export const envelopeSchema=z.object({id:z.string().uuid(),revision:z.number().int().nonnegative(),command:commandSchema,baseProjectHash:z.string().regex(/^[a-f0-9]{64}$/).optional()}).strict();
