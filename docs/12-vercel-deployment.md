@@ -45,7 +45,7 @@ Vercel 등록용 `.env.vercel.local`을 준비했고 서버 키까지 반영했�
 - `value_lens_runtime`: 이 서비스 전용 로그인 역할. 상위 역할을 상속하지 않으며 `value_lens_app`만 사용할 수 있습니다. 기존 `public` 업무 테이블과 `auth.users` 조회 불가를 실제 확인했습니다. 비밀번호는 Git에서 제외된 로컬 설정에만 저장합니다.
 - `value-lens-documents`: 비공개, 파일당 25MiB, 형식 제한 없음. 기존 `project-materials` 버킷과 정책을 유지했습니다. 서버 Secret Key를 로컬 환경에 연결하고 앱의 Storage 어댑터로 서명 업로드 → 크기 조회 → 서명 다운로드 및 내용 일치 → 익명·공개 URL 접근 차단 → 검증 파일 삭제를 확인했습니다. 로그인한 두 조직 간의 전체 API 흐름 검증은 별도입니다.
 - 실제 Transaction pooler 연결, 전용 테이블 저장·조회·JOIN, 기존 서비스 테이블 접근 거부, 검증 데이터 롤백을 확인했습니다. 로컬 `.env.local`에 URL·공개 키·전용 DB 접속값을 저장했습니다.
-- Auth 관리 API 확인 결과: Email 활성, 이메일 확인 필수, 가입 허용, Google 비활성. Google Client ID/Secret과 Custom SMTP가 비어 있습니다. 운영·로컬 `/auth/callback` 허용 주소는 등록하고 재조회로 확인했습니다. 기존 Site URL과 메일 템플릿은 유지했습니다. 실제 이메일 수신과 Google 로그인 성공은 아직 검증하지 않았습니다.
+- Auth 관리 API 확인 결과: Email 활성, 이메일 확인 필수, 가입 허용. 사용자가 제공한 Google Client ID/Secret으로 Google을 활성화하고, 로컬 앱 버튼 → Supabase → Google 계정 로그인 화면 이동을 확인했습니다. 운영·로컬 `/auth/callback` 허용 주소도 재조회로 확인했습니다. 기존 Site URL과 메일 템플릿은 유지했습니다. Custom SMTP는 미설정이며 실제 이메일 수신과 Google 계정 인증 후 서비스 복귀는 아직 검증하지 않았습니다.
 
 Supabase 프로젝트를 공유하므로 Auth 사용자 목록·인증 제공자·메일 설정·리소스 한도는 공유합니다. DB 전용 계정의 권한 분리가 별도 Supabase 프로젝트 수준의 격리를 뜻하지 않습니다. Storage용 `SUPABASE_SECRET_KEY` 역시 프로젝트 전체 권한을 가지므로 서버에서만 사용합니다.
 
@@ -80,6 +80,10 @@ Supabase Auth에서 Email provider를 활성화합니다. Confirm signup과 Magi
 `/api/session`은 Supabase `/auth/v1/settings`의 Email·Google 활성화 상태를 확인합니다. 환경변수만 입력했다고 Google OAuth 연결을 완료로 표시하지 않습니다. 공급자 활성 여부는 OAuth 클라이언트·SMTP의 실제 작동 검증을 대신하지 않습니다.
 
 Supabase Auth → Providers에서 Google OAuth를 설정합니다. Google Cloud의 OAuth redirect URI는 `https://tcodixafsipheefvuouc.supabase.co/auth/v1/callback`입니다. 공유 프로젝트의 기존 **Site URL과 메일 템플릿을 덮어쓰지 않습니다.** Redirect URLs의 기존 항목을 유지하면서 `https://evaluation-jejuai.vercel.app/auth/callback`과 로컬 개발용 `http://127.0.0.1:5173/auth/callback`을 추가합니다. 앱은 명시적으로 `APP_URL/auth/callback`을 지정합니다. Google Client Secret은 Supabase Provider 설정에 저장합니다.
+
+2026-10-06에 위 Google 설정을 적용했습니다. 로컬 `.env.local`의 `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`은 설정 작업용이며 앱 런타임이나 Vercel에 추가할 필요가 없습니다. Supabase 제공자 설정이 사용하며 Git에는 포함하지 않습니다. 공개 Auth 설정과 로컬 `/api/session`에서 Email·Google 모두 활성으로 조회됐고, 새 브라우저의 Google 버튼 클릭과 HttpOnly PKCE 쿠키를 확인했습니다. Google의 `redirect_uri_mismatch`·`invalid_client` 오류는 없었습니다. 계정 입력·동의와 최종 세션 발급은 이번 확인에 포함하지 않았습니다.
+
+현재 운영 도메인의 익명 `/api/session`, `/auth/google` 요청은 Vercel의 `/sso-api`로 이동합니다. 이는 앱의 Supabase 인증 전에 적용되는 배포 접근 보호입니다. 일반 사용자에게 공개하려면 Vercel 프로젝트의 운영 배포 접근 보호를 해제하고 운영 환경변수·Google 인증 후 복귀까지 재검증해야 합니다.
 
 현재 MCP에는 Auth 설정 수정·Secret Key 조회 도구가 없어 사용자가 등록한 PAT로 공식 Management API를 사용했습니다. 인증 설정 읽기·복귀 URL 추가·기존 서버 키 조회를 완료했습니다. PAT는 프로젝트 범위를 `projecthub`로 제한하고 Auth Config와 Project Settings는 Read-write, API Keys와 API Key Secrets는 Read로 설정합니다. Auth 설정 변경 API는 Site URL 변경 여부와 무관하게 Auth Config와 Project Settings 쓰기 권한을 모두 요구합니다. 관리 토큰은 로컬 `SUPABASE_ACCESS_TOKEN`으로만 사용하고 Vercel·브라우저·Git에 전달하지 않습니다.
 

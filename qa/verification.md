@@ -154,3 +154,12 @@
 - 관련 인증·API 테스트 29/29, 타입 검사, diff 공백 검사 통과. 최초 테스트 실행의 Windows 사용자 정보 조회 오류는 일반 사용자 권한 실행에서 해소.
 - 로컬 Vercel 빌드는 Nitro 의존성 복사 중 동일 ajv 버전의 목적지 파일에서 Windows `EBUSY`로 두 차례 실패. TypeScript/화면 번들 단계는 통과했으나 전체 로컬 빌드 성공으로 표시하지 않음.
 - Supabase의 테스트용 `.test`, `example.com` 주소 요청은 `email_address_invalid`로 거절됨. 이 결과만으로 실제 메일 발송 실패를 재현했다고 주장하지 않음. 실주소 검증은 사용자 수신 주소 확인 후 진행.
+
+## 2026-10-06 · Google OAuth 연결
+
+- 사용자가 제공한 Web OAuth Client ID/Secret을 Git 제외된 `.env.local`에 저장하고 공식 Management API로 기존 프로젝트 Google 제공자에 적용. 재조회로 활성 상태 및 설정 일치를 확인. 비밀값은 문서·Git에 포함하지 않음.
+- Supabase 공개 Auth 설정에서 Email·Google 모두 활성. 실제 `/auth/v1/authorize`가 Google로 302 이동하며 지정한 클라이언트와 Supabase 콜백 주소를 사용함.
+- Google 응답은 로그인 페이지 200. `redirect_uri_mismatch`, `invalid_client`, `deleted_client` 오류 없음. 계정 인증·동의·최종 세션 발급은 미수행이므로 Client Secret 교환 및 전체 로그인 성공은 별도 검증 대상.
+- 모의 응답 없이 로컬 앱을 새 Edge 브라우저로 열고 실제 Google 버튼 클릭 → Google 계정 로그인 화면 확인. `/api/session`의 `googleReady`, `emailReady`, `workspaceReady` 모두 true, 인증 전 user null, PKCE 검증 쿠키 HttpOnly, 화면 오류 0.
+- 운영 도메인의 익명 `/api/session` 및 `/auth/google`은 Vercel `/sso-api`로 302 이동. 배포 접근 보호 때문에 운영 앱의 환경변수·버튼·콜백은 검증하지 못함. 로컬 성공과 운영 전체 로그인 성공을 구분함.
+- 이전 공개 회원가입 수정 커밋 `97bb26e`의 Vercel 배포 상태는 success로 확인. 이번 변경은 원격 제공자 설정과 문서 기록이며 추가 패키지 설치나 인증 코드 변경 없음.
